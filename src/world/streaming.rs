@@ -142,29 +142,41 @@ fn unload_chunks(
     let keep = settings.load_radius() + 2;
     let far: Vec<ChunkPos> = world.loaded_positions().filter(|p| (*p - center).abs().max_element() > keep).collect();
     for pos in far {
-        if let Some(chunk) = world.remove_chunk(pos)
+        // A chunk whose edits cannot be written stays loaded: dropping it would lose the edits.
+        if let Some(chunk) = world.chunk(pos)
             && chunk.modified
-            && let Err(e) = storage::save_chunk(&settings.save_dir, pos, &chunk)
+            && let Err(e) = storage::save_chunk(&settings.save_dir, pos, chunk)
         {
-            error!("failed to save chunk {pos}: {e}");
+            error!("failed to save chunk {pos}, keeping it loaded: {e}");
+            continue;
         }
+        world.remove_chunk(pos);
         removed.0.push(pos);
     }
 }
 
-pub fn save_all_modified(world: &mut VoxelWorld, dir: &std::path::Path) -> usize {
+/// Writes every modified chunk to disk. Returns `(saved, failed)`; failed chunks stay marked as
+/// modified so the next save retries them.
+pub fn save_modified_chunks(world: &mut VoxelWorld, dir: &std::path::Path) -> (usize, usize) {
     let dirty: Vec<(ChunkPos, Chunk)> = world.modified_chunks().map(|(p, c)| (p, c.clone())).collect();
-    let mut saved = 0;
+    let (mut saved, mut failed) = (0, 0);
     for (pos, chunk) in dirty {
         match storage::save_chunk(dir, pos, &chunk) {
             Ok(()) => {
                 world.clear_modified(pos);
                 saved += 1;
             }
-            Err(e) => error!("failed to save chunk {pos}: {e}"),
+            Err(e) => {
+                failed += 1;
+                error!("failed to save chunk {pos}: {e}");
+            }
         }
     }
-    saved
+    (saved, failed)
+}
+
+pub fn save_all_modified(world: &mut VoxelWorld, dir: &std::path::Path) -> usize {
+    save_modified_chunks(world, dir).0
 }
 
 fn autosave_chunks(

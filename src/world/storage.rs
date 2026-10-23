@@ -3,22 +3,71 @@
 
 use super::block::BlockId;
 use super::chunk::{CHUNK_VOLUME, Chunk, ChunkPos};
+use crate::inventory::ItemStack;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 const MAGIC: &[u8; 4] = b"MKC1";
 
+/// Bumped whenever `level.json` gains fields that older builds cannot interpret.
+pub const LEVEL_VERSION: u32 = 2;
+
+/// Everything about a world that is not stored in chunk files. New fields must carry
+/// `#[serde(default)]` so saves written by older versions keep loading.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct LevelData {
+    #[serde(default)]
+    pub version: u32,
     pub seed: u32,
+    /// False for a world that has been created but whose spawn point is not chosen yet.
+    #[serde(default = "yes")]
+    pub spawned: bool,
     pub player_pos: [f32; 3],
     pub yaw: f32,
     pub pitch: f32,
     pub time_of_day: f32,
     pub selected_slot: usize,
     pub flying: bool,
+    /// Inventory slots, armor slots, then the cursor stack. `None` = never saved (use the starter kit).
+    #[serde(default)]
+    pub inventory: Option<Vec<Option<ItemStack>>>,
+    #[serde(default)]
+    pub options: OptionsData,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// Options persisted with the world; `None` means "keep the default / command-line value".
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+pub struct OptionsData {
+    pub render_distance: Option<i32>,
+    pub fov: Option<f32>,
+    pub mouse_sensitivity: Option<f32>,
+    pub fullscreen: Option<bool>,
+}
+
+impl LevelData {
+    /// A brand-new world: only the seed is known. Written immediately so chunks saved before the
+    /// first autosave can never be paired with a different seed.
+    pub fn fresh(seed: u32) -> Self {
+        Self {
+            version: LEVEL_VERSION,
+            seed,
+            spawned: false,
+            player_pos: [0.0, 200.0, 0.0],
+            yaw: 0.0,
+            pitch: 0.0,
+            time_of_day: 0.32,
+            selected_slot: 0,
+            flying: false,
+            inventory: None,
+            options: OptionsData::default(),
+        }
+    }
 }
 
 pub fn chunk_path(dir: &Path, pos: ChunkPos) -> PathBuf {
@@ -71,11 +120,25 @@ pub fn decode_chunk(bytes: &[u8]) -> io::Result<Chunk> {
 
 pub fn save_chunk(dir: &Path, pos: ChunkPos, chunk: &Chunk) -> io::Result<()> {
     fs::create_dir_all(dir)?;
-    let path = chunk_path(dir, pos);
-    // Write-then-rename so a crash never leaves a half-written chunk behind.
+    write_atomic(&chunk_path(dir, pos), &encode_chunk(chunk))
+}
+
+/// Write-fsync-rename: a crash or power loss leaves either the old or the new file, never half of one.
+fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let tmp = path.with_extension("tmp");
-    fs::write(&tmp, encode_chunk(chunk))?;
-    fs::rename(tmp, path)
+    {
+        let mut f = File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+    fs::rename(&tmp, path)?;
+    // Persist the rename itself; not supported on every platform, so best effort.
+    if let Some(parent) = path.parent()
+        && let Ok(d) = File::open(parent)
+    {
+        let _ = d.sync_all();
+    }
+    Ok(())
 }
 
 /// `Ok(None)` if the chunk was never saved. A corrupt file is reported as an
@@ -92,13 +155,26 @@ pub fn save_level(dir: &Path, level: &LevelData) -> io::Result<()> {
     fs::create_dir_all(dir)?;
     let json = serde_json::to_vec_pretty(level).map_err(io::Error::other)?;
     let path = dir.join("level.json");
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, json)?;
-    fs::rename(tmp, path)
+    // Keep the previous good copy so a corrupted file can fall back to it.
+    if path.exists() {
+        let _ = fs::copy(&path, dir.join("level.json.bak"));
+    }
+    write_atomic(&path, &json)
 }
 
+/// Reads `level.json`, falling back to the backup if the main file is unreadable.
 pub fn load_level(dir: &Path) -> Option<LevelData> {
-    serde_json::from_slice(&fs::read(dir.join("level.json")).ok()?).ok()
+    for name in ["level.json", "level.json.bak"] {
+        match fs::read(dir.join(name)) {
+            Ok(bytes) => match serde_json::from_slice::<LevelData>(&bytes) {
+                Ok(level) => return Some(level),
+                Err(e) => bevy::log::error!("{name} is corrupt ({e})"),
+            },
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => bevy::log::error!("cannot read {name}: {e}"),
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -106,6 +182,7 @@ mod tests {
     use super::*;
     use crate::world::generation::TerrainGenerator;
     use bevy::math::IVec2;
+    use bevy::prelude::default;
 
     fn temp_dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("mk_test_{name}_{}", std::process::id()));
@@ -134,16 +211,43 @@ mod tests {
         assert_eq!(back.get(1, 2, 3), BlockId::PLANKS);
 
         let level = LevelData {
-            seed: 9,
+            spawned: true,
             player_pos: [1.0, 2.0, 3.0],
             yaw: 0.5,
             pitch: -0.2,
             time_of_day: 0.3,
             selected_slot: 2,
-            flying: false,
+            inventory: Some(vec![Some(ItemStack::new(crate::inventory::Item::block(BlockId::DIRT), 12)), None]),
+            options: OptionsData { render_distance: Some(14), fov: Some(95.0), ..default() },
+            ..LevelData::fresh(9)
         };
         save_level(&dir, &level).unwrap();
         assert_eq!(load_level(&dir), Some(level));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn levels_from_older_versions_still_load() {
+        let dir = temp_dir("legacy");
+        fs::create_dir_all(&dir).unwrap();
+        let old = r#"{"seed":77,"player_pos":[1.5,70.0,-3.0],"yaw":1.0,"pitch":0.1,"time_of_day":0.6,
+            "selected_slot":3,"flying":true}"#;
+        fs::write(dir.join("level.json"), old).unwrap();
+        let level = load_level(&dir).expect("legacy level.json must parse");
+        assert_eq!((level.seed, level.selected_slot, level.flying), (77, 3, true));
+        assert!(level.spawned, "old worlds already have a spawn point");
+        assert_eq!(level.inventory, None);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn corrupt_level_falls_back_to_backup() {
+        let dir = temp_dir("backup");
+        save_level(&dir, &LevelData::fresh(5)).unwrap();
+        save_level(&dir, &LevelData { time_of_day: 0.9, ..LevelData::fresh(5) }).unwrap();
+        fs::write(dir.join("level.json"), b"{ not json").unwrap();
+        let level = load_level(&dir).expect("backup should be used");
+        assert_eq!(level.seed, 5);
         let _ = fs::remove_dir_all(dir);
     }
 

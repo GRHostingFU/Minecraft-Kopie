@@ -1,101 +1,55 @@
 pub mod controller;
 pub mod interaction;
+pub mod viewmodel;
 
+use crate::inventory::Inventory;
 use crate::rendering::sky::TimeOfDay;
-use crate::world::BlockId;
+use crate::settings::{self, GameSettings};
 use crate::world::storage::{self, LevelData};
 use crate::world::streaming::WorldSettings;
-use bevy::app::OnAppExitSystems;
 use bevy::prelude::*;
-use bevy::window::ExitSystems;
-use std::time::Duration;
 
-pub const HOTBAR_SLOTS: usize = 5;
-
+/// The `level.json` found at startup (or the freshly created one), consumed by the spawn code.
 #[derive(Resource, Clone, Debug)]
-pub struct Hotbar {
-    pub slots: [BlockId; HOTBAR_SLOTS],
-    pub selected: usize,
-}
-
-impl Default for Hotbar {
-    fn default() -> Self {
-        Self { slots: [BlockId::DIRT, BlockId::STONE, BlockId::PLANKS, BlockId::LOG, BlockId::COBBLE], selected: 0 }
-    }
-}
-
-impl Hotbar {
-    pub fn current(&self) -> BlockId {
-        self.slots[self.selected]
-    }
-
-    pub fn cycle(&mut self, steps: i32) {
-        self.selected = (self.selected as i32 + steps).rem_euclid(HOTBAR_SLOTS as i32) as usize;
-    }
-}
-
-#[derive(Resource)]
-struct LevelSaveTimer(Timer);
+pub struct LoadedLevel(pub Option<LevelData>);
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Hotbar>()
-            .insert_resource(LevelSaveTimer(Timer::new(Duration::from_secs(30), TimerMode::Repeating)))
-            .add_plugins((controller::ControllerPlugin, interaction::InteractionPlugin))
-            .add_systems(Update, autosave_level)
-            .add_systems(Last, save_level_on_exit.in_set(OnAppExitSystems).after(ExitSystems));
-    }
-}
+        let settings = app.world().get_resource::<WorldSettings>().cloned().expect("insert WorldSettings first");
+        let mut level = storage::load_level(&settings.save_dir);
+        if level.is_none() {
+            // Persist the seed right away: chunks saved before the first autosave must never be
+            // paired with a different seed on the next start.
+            let fresh = LevelData::fresh(settings.seed);
+            match storage::save_level(&settings.save_dir, &fresh) {
+                Ok(()) => level = Some(fresh),
+                Err(e) => error!("cannot create {}: {e}", settings.save_dir.display()),
+            }
+        }
 
-fn snapshot(
-    settings: &WorldSettings,
-    player: &controller::Player,
-    transform: &Transform,
-    tod: &TimeOfDay,
-    hotbar: &Hotbar,
-) -> LevelData {
-    LevelData {
-        seed: settings.seed,
-        player_pos: transform.translation.to_array(),
-        yaw: player.yaw,
-        pitch: player.pitch,
-        time_of_day: tod.t,
-        selected_slot: hotbar.selected,
-        flying: player.flying,
-    }
-}
+        let inventory = level
+            .as_ref()
+            .and_then(|l| l.inventory.as_ref().map(|inv| Inventory::from_save(inv, l.selected_slot)))
+            .unwrap_or_default();
+        let options = level.as_ref().map(|l| l.options).unwrap_or_default();
+        let defaults = GameSettings::default();
+        let game_settings = GameSettings {
+            fov: options.fov.unwrap_or(defaults.fov),
+            mouse_sensitivity: options.mouse_sensitivity.unwrap_or(defaults.mouse_sensitivity),
+            fullscreen: options.fullscreen.unwrap_or(defaults.fullscreen),
+        }
+        .sanitized();
+        if let Some(l) = level.as_ref().filter(|l| l.spawned) {
+            let t = if l.time_of_day.is_finite() { l.time_of_day.rem_euclid(1.0) } else { 0.32 };
+            app.insert_resource(TimeOfDay { t, ..default() });
+        }
+        debug_assert!(settings::clamp_render_distance(settings.render_distance) == settings.render_distance);
 
-fn autosave_level(
-    time: Res<Time>,
-    mut timer: ResMut<LevelSaveTimer>,
-    settings: Res<WorldSettings>,
-    q: Query<(&controller::Player, &Transform)>,
-    tod: Res<TimeOfDay>,
-    hotbar: Res<Hotbar>,
-) {
-    if timer.0.tick(time.delta()).just_finished()
-        && let Ok((p, t)) = q.single()
-        && p.active
-        && let Err(e) = storage::save_level(&settings.save_dir, &snapshot(&settings, p, t, &tod, &hotbar))
-    {
-        error!("failed to save level: {e}");
-    }
-}
-
-fn save_level_on_exit(
-    mut exit: MessageReader<AppExit>,
-    settings: Res<WorldSettings>,
-    q: Query<(&controller::Player, &Transform)>,
-    tod: Res<TimeOfDay>,
-    hotbar: Res<Hotbar>,
-) {
-    if exit.read().next().is_some()
-        && let Ok((p, t)) = q.single()
-        && p.active
-        && let Err(e) = storage::save_level(&settings.save_dir, &snapshot(&settings, p, t, &tod, &hotbar))
-    {
-        error!("failed to save level: {e}");
+        app.insert_resource(inventory)
+            .insert_resource(game_settings)
+            .insert_resource(LoadedLevel(level))
+            .add_plugins((controller::ControllerPlugin, interaction::InteractionPlugin, viewmodel::ViewModelPlugin));
     }
 }

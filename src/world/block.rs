@@ -23,7 +23,12 @@ pub mod tile {
     pub const BEDROCK: u8 = 10;
     pub const SNOW: u8 = 11;
     pub const COBBLE: u8 = 12;
-    pub const COUNT: u8 = 13;
+    /// Item icons (armor); `HELMET + n` is the icon for armor slot `n`.
+    pub const HELMET: u8 = 13;
+    pub const CHESTPLATE: u8 = 14;
+    pub const LEGGINGS: u8 = 15;
+    pub const BOOTS: u8 = 16;
+    pub const COUNT: u8 = 17;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
