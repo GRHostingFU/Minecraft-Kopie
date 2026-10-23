@@ -1,0 +1,32 @@
+[package]
+name = "minecraft_kopie"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+description = "Clean-room voxel sandbox in Rust and Bevy with procedural terrain, greedy meshing and AABB physics"
+publish = false
+
+[lib]
+name = "minecraft_kopie"
+path = "src/lib.rs"
+
+[[bin]]
+name = "minecraft_kopie"
+path = "src/main.rs"
+
+[dependencies]
+bevy = { version = "0.20", default-features = false, features = ["3d", "ui"] }
+noise = { version = "0.9", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Debug builds of a voxel engine are unplayable without optimisation.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
