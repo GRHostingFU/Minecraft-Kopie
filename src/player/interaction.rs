@@ -1,7 +1,8 @@
-//! Block targeting, breaking (with debris particles), placing and hotbar input.
+//! Block targeting, breaking (with debris particles and item pickup), placing from the
+//! inventory and hotbar input.
 
 use super::controller::{InputCapture, Player, PlayerCamera};
-use super::{HOTBAR_SLOTS, Hotbar};
+use crate::inventory::{HOTBAR_SLOTS, Inventory, Item, ItemStack};
 use crate::physics::collision::Body;
 use crate::physics::raycast::{RayHit, raycast};
 use crate::world::VoxelWorld;
@@ -12,6 +13,10 @@ use bevy::prelude::*;
 
 pub const REACH: f32 = 6.0;
 const REPEAT_SECS: f32 = 0.2;
+
+/// Sent whenever the player uses the held item (left or right click); drives the hand animation.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct HandSwing;
 
 /// The block under the crosshair, if any.
 #[derive(Resource, Default)]
@@ -38,10 +43,14 @@ pub struct InteractionPlugin;
 
 impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Target>().init_resource::<ActionCooldown>().init_resource::<ParticleAssets>().add_systems(
-            Update,
-            (hotbar_input, update_target, block_actions, draw_highlight, update_particles).chain(),
-        );
+        app.init_resource::<Target>()
+            .init_resource::<ActionCooldown>()
+            .init_resource::<ParticleAssets>()
+            .add_message::<HandSwing>()
+            .add_systems(
+                Update,
+                (hotbar_input, update_target, block_actions, draw_highlight, update_particles).chain(),
+            );
     }
 }
 
@@ -49,20 +58,29 @@ fn hotbar_input(
     keys: Res<ButtonInput<KeyCode>>,
     scroll: Res<AccumulatedMouseScroll>,
     capture: Res<InputCapture>,
-    mut hotbar: ResMut<Hotbar>,
+    mut inventory: ResMut<Inventory>,
 ) {
     if !capture.0 {
         return;
     }
-    const DIGITS: [KeyCode; HOTBAR_SLOTS] =
-        [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5];
+    const DIGITS: [KeyCode; HOTBAR_SLOTS] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
     for (i, k) in DIGITS.iter().enumerate() {
-        if keys.just_pressed(*k) {
-            hotbar.selected = i;
+        if keys.just_pressed(*k) && inventory.selected != i {
+            inventory.selected = i;
         }
     }
     if scroll.delta.y != 0.0 {
-        hotbar.cycle(-scroll.delta.y.signum() as i32);
+        inventory.cycle(-scroll.delta.y.signum() as i32);
     }
 }
 
@@ -77,7 +95,7 @@ fn block_actions(
     mouse: Res<ButtonInput<MouseButton>>,
     capture: Res<InputCapture>,
     target: Res<Target>,
-    hotbar: Res<Hotbar>,
+    mut inventory: ResMut<Inventory>,
     mut world: ResMut<VoxelWorld>,
     player: Query<(&Player, &Transform)>,
     mut cooldown: ResMut<ActionCooldown>,
@@ -85,34 +103,50 @@ fn block_actions(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     particles: Query<(), With<Particle>>,
+    mut swings: MessageWriter<HandSwing>,
 ) {
     cooldown.0 = (cooldown.0 - time.delta_secs()).max(0.0);
-    let Some(hit) = target.0 else { return };
     let Ok((p, pt)) = player.single() else { return };
-    // The click that captures the mouse must not also break a block.
+    // The click that closes a menu must not also break a block.
     if !capture.0 || !p.active {
         return;
     }
-    let left = mouse.just_pressed(MouseButton::Left) || (mouse.pressed(MouseButton::Left) && cooldown.0 == 0.0);
-    let right = mouse.just_pressed(MouseButton::Right) || (mouse.pressed(MouseButton::Right) && cooldown.0 == 0.0);
+    let ready = cooldown.0 == 0.0;
+    let left = mouse.just_pressed(MouseButton::Left) || (mouse.pressed(MouseButton::Left) && ready);
+    let right = mouse.just_pressed(MouseButton::Right) || (mouse.pressed(MouseButton::Right) && ready);
+    // Clicking at the sky still swings the arm, like in Minecraft.
+    let Some(hit) = target.0 else {
+        if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right) {
+            swings.write(HandSwing);
+        }
+        return;
+    };
 
     if left {
+        swings.write(HandSwing);
         let id = world.block_at(hit.block);
         if id.is_breakable() && world.set_block(hit.block, BlockId::AIR) {
             cooldown.0 = REPEAT_SECS;
+            if let Some(item) = Item::drop_for(id) {
+                // A full inventory simply loses the drop (there are no item entities yet).
+                inventory.add(ItemStack::new(item, 1));
+            }
             if particles.iter().count() < MAX_PARTICLES {
                 spawn_debris(&mut commands, &mut assets, &mut meshes, &mut materials, hit.block, id);
             }
         }
     } else if right && hit.normal != IVec3::ZERO {
+        swings.write(HandSwing);
         let at = hit.place_pos();
         let body = Body::player(pt.translation);
         let free = world.block_at(at).is_replaceable();
-        if free
+        if let Some(block) = inventory.held_item().and_then(Item::as_block)
+            && free
             && !body.intersects_block(at)
             && (0..crate::world::CHUNK_H as i32).contains(&at.y)
-            && world.set_block(at, hotbar.current())
+            && world.set_block(at, block)
         {
+            inventory.take_one_selected();
             cooldown.0 = REPEAT_SECS;
         }
     }

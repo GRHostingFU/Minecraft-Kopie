@@ -3,6 +3,7 @@
 
 use super::chunk_mesh::VoxelMaterials;
 use super::material::VoxelMaterial;
+use crate::player::controller::PlayerCamera;
 use bevy::prelude::*;
 use std::f32::consts::TAU;
 
@@ -28,19 +29,24 @@ impl TimeOfDay {
         ((self.t - 0.25) * TAU).sin()
     }
 
-    /// 0 at night, 1 in full daylight, with a smooth dawn/dusk ramp.
+    /// 0 at night, 1 in full daylight, with a wide, smooth dawn/dusk ramp.
     pub fn daylight(&self) -> f32 {
-        smoothstep(-0.12, 0.28, self.sun_elevation())
+        smoothstep(-0.18, 0.32, self.sun_elevation())
+    }
+
+    /// 1 while the sun sits on the horizon, fading out smoothly towards noon and midnight.
+    pub fn twilight(&self) -> f32 {
+        let e = self.sun_elevation() / 0.16;
+        (-e * e).exp()
     }
 
     /// Horizon/sky colour used for the clear colour and fog.
     pub fn sky_color(&self) -> Vec3 {
-        let day = Vec3::new(0.50, 0.72, 0.96);
-        let night = Vec3::new(0.015, 0.025, 0.07);
-        let dusk = Vec3::new(0.95, 0.52, 0.30);
+        let day = Vec3::new(0.47, 0.70, 0.96);
+        let night = Vec3::new(0.012, 0.02, 0.06);
+        let dusk = Vec3::new(0.98, 0.55, 0.30);
         let base = night.lerp(day, self.daylight());
-        let twilight = (1.0 - (self.sun_elevation().abs() / 0.25)).clamp(0.0, 1.0);
-        base.lerp(dusk, twilight * 0.55)
+        base.lerp(dusk, self.twilight() * 0.5)
     }
 }
 
@@ -107,7 +113,7 @@ fn advance_time(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, mut tod: ResMu
 
 fn update_sky(
     tod: Res<TimeOfDay>,
-    camera: Query<&GlobalTransform, With<Camera3d>>,
+    camera: Query<&GlobalTransform, With<PlayerCamera>>,
     mut rig: Query<&mut Transform, With<SkyRig>>,
     mut clear: ResMut<ClearColor>,
 ) {
@@ -129,11 +135,11 @@ fn update_shader_params(
     let Some(handles) = handles else { return };
     let c = tod.sky_color();
     let fog_end = (settings.render_distance as f32 * 16.0 - 8.0).max(48.0);
-    let fog = Vec4::new(c.x, c.y, c.z, fog_end * 0.55);
+    let fog = Vec4::new(c.x, c.y, c.z, fog_end * 0.3);
     for (handle, alpha) in [(&handles.opaque, 1.0), (&handles.water, 0.84)] {
         if let Some(mut m) = materials.get_mut(handle) {
             m.fog_color = fog;
-            m.params = Vec4::new(tod.daylight(), fog_end, alpha, 0.0);
+            m.params = Vec4::new(tod.daylight(), fog_end, alpha, tod.twilight());
         }
     }
 }
@@ -149,6 +155,17 @@ mod tests {
         assert!(noon.daylight() > 0.99);
         assert!(midnight.daylight() < 0.01);
         assert!(noon.sky_color().length() > midnight.sky_color().length() * 5.0);
+    }
+
+    #[test]
+    fn twilight_peaks_at_the_horizon_only() {
+        let sunrise = TimeOfDay { t: 0.25, speed: 1.0 };
+        let noon = TimeOfDay { t: 0.5, speed: 1.0 };
+        let midnight = TimeOfDay { t: 0.0, speed: 1.0 };
+        assert!(sunrise.twilight() > 0.99);
+        assert!(noon.twilight() < 0.01 && midnight.twilight() < 0.01);
+        // The sky warms up around sunrise compared with the same daylight level at noon.
+        assert!(sunrise.sky_color().x > sunrise.sky_color().z * 0.8);
     }
 
     #[test]

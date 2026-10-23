@@ -8,7 +8,7 @@ use bevy::shader::ShaderRef;
 pub struct VoxelParams {
     /// rgb = fog / horizon colour, a = fog start distance.
     pub fog_color: Vec4,
-    /// x = daylight (0..1), y = fog end distance, z = water alpha, w unused.
+    /// x = daylight (0..1), y = fog end distance, z = water alpha, w = twilight (0..1).
     pub params: Vec4,
 }
 
