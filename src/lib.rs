@@ -1,12 +1,16 @@
-//! A clean-room voxel sandbox built on Bevy. All terrain and textures are
-//! generated procedurally; the repository contains no third-party game assets.
+//! A clean-room voxel sandbox built on Bevy. All terrain, textures, fonts and UI are generated
+//! procedurally; the repository contains no third-party game assets.
 
 pub mod inventory;
+pub mod items;
+pub mod mobs;
 pub mod physics;
 pub mod player;
 pub mod rendering;
 pub mod save;
+pub mod session;
 pub mod settings;
+pub mod survival;
 pub mod ui;
 pub mod world;
 
@@ -21,7 +25,10 @@ impl PluginGroup for VoxelGamePlugins {
         PluginGroupBuilder::start::<Self>()
             .add(world::streaming::ChunkStreamingPlugin)
             .add(rendering::RenderingPlugin)
+            .add(session::SessionPlugin)
             .add(player::PlayerPlugin)
+            .add(survival::SurvivalPlugin)
+            .add(mobs::MobsPlugin)
             .add(save::SavePlugin)
             .add(ui::UiPlugin)
     }

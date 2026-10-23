@@ -4,8 +4,12 @@
 //! `physics::move_body`.
 
 use super::LoadedLevel;
+use super::controls::{Controls, SprintState};
 use crate::physics::collision::{Body, in_water, move_body, standing_on};
+use crate::rendering::sky::SkyCenter;
+use crate::session::{AppState, GameEntity, GameMode};
 use crate::settings::GameSettings;
+use crate::survival::Vitals;
 use crate::world::block::BlockId;
 use crate::world::generation::{Biome, SEA_LEVEL, TerrainGenerator};
 use crate::world::streaming::{ChunkAnchor, Generator};
@@ -32,8 +36,6 @@ const BASE_SENSITIVITY: f32 = 0.0022;
 const PHYSICS_STEP: f32 = 1.0 / 120.0;
 /// A sneaking player may step down at most this far (a slab), anything deeper counts as an edge.
 const SNEAK_STEP_DOWN: f32 = 0.6;
-/// Two W presses within this many seconds start a sprint.
-const DOUBLE_TAP_SECS: f32 = 0.3;
 /// Field-of-view multiplier while sprinting.
 pub const SPRINT_FOV_SCALE: f32 = 1.12;
 
@@ -64,51 +66,27 @@ pub struct PlayerCamera;
 #[derive(Resource, Default)]
 pub struct InputCapture(pub bool);
 
-/// Tracks the sprint "latch": once started by a double-tap or Ctrl it lasts until the player
-/// stops moving forward, sneaks, or runs into something.
-#[derive(Resource, Default, Debug)]
-pub struct SprintState {
-    last_forward_tap: Option<f32>,
-    pub latched: bool,
-    /// The previous physics step ran into a wall while sprinting.
-    blocked: bool,
-}
+/// Where the player returns to after dying: the first spawn point of the world.
+#[derive(Resource, Default, Clone, Copy, Debug)]
+pub struct SpawnPoint(pub Option<Vec3>);
 
-impl SprintState {
-    /// `now` is in seconds. Returns whether the player is sprinting this frame.
-    pub fn update(
-        &mut self,
-        now: f32,
-        forward_pressed: bool,
-        forward_held: bool,
-        ctrl_held: bool,
-        sneaking: bool,
-        blocked: bool,
-    ) -> bool {
-        if forward_pressed {
-            if self.last_forward_tap.is_some_and(|t| now - t <= DOUBLE_TAP_SECS) {
-                self.latched = true;
-            }
-            self.last_forward_tap = Some(now);
-        }
-        if forward_held && ctrl_held {
-            self.latched = true;
-        }
-        if !forward_held || sneaking || blocked {
-            self.latched = false;
-        }
-        self.latched
-    }
-}
+/// Asks for the player to be put back at the spawn point with full health.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct RespawnRequest;
 
 pub struct ControllerPlugin;
 
 impl Plugin for ControllerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InputCapture>()
-            .init_resource::<SprintState>()
-            .add_systems(Startup, spawn_player)
-            .add_systems(Update, (resolve_spawn, mouse_look, toggle_fly, player_physics, sync_camera).chain());
+            .init_resource::<SpawnPoint>()
+            .add_message::<RespawnRequest>()
+            .add_systems(
+                Update,
+                (resolve_spawn, respawn, mouse_look, toggle_fly, player_physics, sync_camera)
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
+            );
     }
 }
 
@@ -128,11 +106,14 @@ pub fn find_spawn_column(gen_: &TerrainGenerator) -> IVec2 {
     IVec2::ZERO
 }
 
-fn spawn_player(
+/// Creates the player (and the camera on its head) at the saved position, or high above the
+/// spawn column of a fresh world, to be lowered onto the terrain once it has been generated.
+pub fn spawn_player(
     mut commands: Commands,
     loaded: Res<LoadedLevel>,
     settings: Res<GameSettings>,
     generator: Res<Generator>,
+    mode: Res<GameMode>,
 ) {
     let (pos, yaw, pitch, flying, fresh) = match loaded.0.as_ref().filter(|l| l.spawned) {
         Some(l) => (Vec3::from(l.player_pos), l.yaw, l.pitch, l.flying, false),
@@ -141,8 +122,11 @@ fn spawn_player(
             (Vec3::new(c.x as f32 + 0.5, 200.0, c.y as f32 + 0.5), 0.0, 0.0, false, true)
         }
     };
+    commands.insert_resource(SpawnPoint(loaded.0.as_ref().and_then(|l| l.spawn_point).map(Vec3::from)));
+    let flying = flying && *mode == GameMode::Creative;
     commands
         .spawn((
+            GameEntity,
             Player {
                 vel: Vec3::ZERO,
                 yaw,
@@ -164,6 +148,7 @@ fn spawn_player(
         .with_children(|p| {
             p.spawn((
                 PlayerCamera,
+                SkyCenter,
                 Camera3d::default(),
                 Projection::Perspective(PerspectiveProjection {
                     fov: settings.fov.to_radians(),
@@ -179,7 +164,7 @@ fn spawn_player(
 }
 
 /// Places the player on solid ground once the chunk below exists.
-fn resolve_spawn(world: Res<VoxelWorld>, mut q: Query<(&mut Player, &mut Transform)>) {
+fn resolve_spawn(world: Res<VoxelWorld>, mut spawn_point: ResMut<SpawnPoint>, mut q: Query<(&mut Player, &mut Transform)>) {
     let Ok((mut player, mut t)) = q.single_mut() else { return };
     if player.active {
         return;
@@ -206,6 +191,7 @@ fn resolve_spawn(world: Res<VoxelWorld>, mut q: Query<(&mut Player, &mut Transfo
                         (1..=3).all(|k| world.block(IVec3::new(x, h + k, z)).is_some_and(|b| !b.is_solid()));
                     if clear_above && h > SEA_LEVEL && !matches!(top, BlockId::LOG | BlockId::LEAVES) {
                         t.translation = Vec3::new(x as f32 + 0.5, h as f32 + 1.0 + 1e-3, z as f32 + 0.5);
+                        spawn_point.0 = Some(t.translation);
                         break 'search;
                     }
                 }
@@ -217,6 +203,34 @@ fn resolve_spawn(world: Res<VoxelWorld>, mut q: Query<(&mut Player, &mut Transfo
     player.active = true;
 }
 
+/// Puts the player back at the world spawn with full health after dying.
+fn respawn(
+    mut requests: MessageReader<RespawnRequest>,
+    mut vitals: ResMut<Vitals>,
+    spawn_point: Res<SpawnPoint>,
+    generator: Res<Generator>,
+    mut player: Query<(&mut Player, &mut Transform)>,
+) {
+    if requests.read().next().is_none() {
+        return;
+    }
+    let Ok((mut p, mut t)) = player.single_mut() else { return };
+    *vitals = Vitals::full();
+    vitals.invulnerable = 3.0;
+    p.vel = Vec3::ZERO;
+    p.flying = false;
+    match spawn_point.0 {
+        Some(pos) => t.translation = pos + Vec3::Y * 0.5,
+        None => {
+            // No spawn recorded (very old world): drop in from above the usual spawn column.
+            let c = find_spawn_column(&generator.0);
+            t.translation = Vec3::new(c.x as f32 + 0.5, 200.0, c.y as f32 + 0.5);
+            p.active = false;
+            p.needs_spawn_search = true;
+        }
+    }
+}
+
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     capture: Res<InputCapture>,
@@ -226,8 +240,9 @@ fn mouse_look(
     let Ok((mut p, mut t)) = q.single_mut() else { return };
     if capture.0 {
         let k = BASE_SENSITIVITY * settings.mouse_sensitivity;
+        let dy = if settings.invert_mouse { -motion.delta.y } else { motion.delta.y };
         p.yaw -= motion.delta.x * k;
-        p.pitch = (p.pitch - motion.delta.y * k).clamp(-FRAC_PI_2 + 0.01, FRAC_PI_2 - 0.01);
+        p.pitch = (p.pitch - dy * k).clamp(-FRAC_PI_2 + 0.01, FRAC_PI_2 - 0.01);
     }
     t.rotation = Quat::from_rotation_y(p.yaw);
 }
@@ -255,8 +270,9 @@ fn sync_camera(
     }
 }
 
-fn toggle_fly(keys: Res<ButtonInput<KeyCode>>, capture: Res<InputCapture>, mut q: Query<&mut Player>) {
+fn toggle_fly(keys: Res<ButtonInput<KeyCode>>, capture: Res<InputCapture>, mode: Res<GameMode>, mut q: Query<&mut Player>) {
     if capture.0
+        && *mode == GameMode::Creative
         && keys.just_pressed(KeyCode::KeyF)
         && let Ok(mut p) = q.single_mut()
     {
@@ -403,8 +419,8 @@ pub fn step_player<W: BlockQuery>(
 
 fn player_physics(
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
-    capture: Res<InputCapture>,
+    controls: Res<Controls>,
+    mode: Res<GameMode>,
     world: Res<VoxelWorld>,
     mut sprint: ResMut<SprintState>,
     mut q: Query<(&mut Player, &mut Transform)>,
@@ -413,35 +429,17 @@ fn player_physics(
     if !p.active {
         return;
     }
-    let mut input = MoveInput::default();
-    let mut sprinting = false;
-    if capture.0 {
-        let axis = |pos: KeyCode, neg: KeyCode| keys.pressed(pos) as i32 as f32 - keys.pressed(neg) as i32 as f32;
-        input.wish = Vec2::new(axis(KeyCode::KeyD, KeyCode::KeyA), axis(KeyCode::KeyW, KeyCode::KeyS));
-        input.jump = keys.pressed(KeyCode::Space);
-        let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-        let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
-        input.descend = shift;
-        input.sneak = shift && !p.flying;
-        if p.flying {
-            input.sprint = ctrl;
-            sprint.latched = false;
-        } else {
-            // Running into a wall ends the sprint (the previous step reported the collision).
-            let blocked = std::mem::take(&mut sprint.blocked);
-            sprinting = sprint.update(
-                time.elapsed_secs(),
-                keys.just_pressed(KeyCode::KeyW),
-                keys.pressed(KeyCode::KeyW),
-                ctrl,
-                input.sneak,
-                blocked,
-            );
-            input.sprint = sprinting;
-        }
-    } else {
-        sprint.latched = false;
+    // Survival players cannot fly (the mode may have been switched while flying).
+    if *mode == GameMode::Survival {
+        p.flying = false;
     }
+    let input = MoveInput {
+        wish: controls.wish,
+        jump: controls.jump,
+        descend: controls.descend,
+        sprint: if p.flying { controls.fast } else { controls.sprint },
+        sneak: controls.sneak && !p.flying,
+    };
     let dt = time.delta_secs().min(0.1);
     let steps = (dt / PHYSICS_STEP).ceil().max(1.0) as u32;
     let step_dt = dt / steps as f32;
@@ -457,10 +455,10 @@ fn player_physics(
     }
     t.translation = pos;
     p.vel = vel;
-    sprint.blocked = sprinting && last.hit_horizontal;
+    sprint.blocked = controls.sprint && last.hit_horizontal;
     p.on_ground = last.on_ground;
     p.in_water = last.swimming;
-    p.sprinting = (sprinting || (p.flying && input.sprint)) && Vec2::new(vel.x, vel.z).length() > 0.5;
+    p.sprinting = ((controls.sprint && !p.flying) || (p.flying && input.sprint)) && Vec2::new(vel.x, vel.z).length() > 0.5;
     p.sneaking = input.sneak && !last.swimming;
     if p.flying && last.on_ground {
         p.flying = false;
@@ -593,30 +591,6 @@ mod tests {
             step_player(&Ledge, &mut pos, &mut vel, 0.0, false, west, PHYSICS_STEP);
         }
         assert!(pos.x < 0.0, "x = {}", pos.x);
-    }
-
-    #[test]
-    fn sprint_starts_on_double_tap_or_ctrl_and_stops_when_released_or_blocked() {
-        let mut s = SprintState::default();
-        // A single tap is just walking.
-        assert!(!s.update(0.0, true, true, false, false, false));
-        assert!(!s.update(0.1, false, false, false, false, false));
-        // Second tap within the window sprints; holding W keeps it going.
-        assert!(s.update(0.2, true, true, false, false, false));
-        assert!(s.update(0.5, false, true, false, false, false));
-        // Releasing W ends it.
-        assert!(!s.update(0.6, false, false, false, false, false));
-        // Too slow for a double tap.
-        assert!(!s.update(2.0, true, true, false, false, false));
-        assert!(!s.update(2.5, true, true, false, false, false));
-        // Ctrl + W sprints and keeps going after Ctrl is released.
-        let mut s = SprintState::default();
-        assert!(s.update(0.0, true, true, true, false, false));
-        assert!(s.update(0.2, false, true, false, false, false));
-        // Hitting a wall or sneaking ends it.
-        assert!(!s.update(0.3, false, true, false, false, true));
-        assert!(s.update(0.4, false, true, true, false, false));
-        assert!(!s.update(0.5, false, true, true, true, false));
     }
 
     #[test]

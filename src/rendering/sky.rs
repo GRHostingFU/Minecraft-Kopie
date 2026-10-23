@@ -3,7 +3,6 @@
 
 use super::chunk_mesh::VoxelMaterials;
 use super::material::VoxelMaterial;
-use crate::player::controller::PlayerCamera;
 use bevy::prelude::*;
 use std::f32::consts::TAU;
 
@@ -57,6 +56,10 @@ pub fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 
 #[derive(Component)]
 pub struct SkyRig;
+
+/// The camera the sun and moon follow (the player's, or the title screen's).
+#[derive(Component)]
+pub struct SkyCenter;
 
 #[derive(Component)]
 struct SunDisc;
@@ -113,7 +116,7 @@ fn advance_time(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, mut tod: ResMu
 
 fn update_sky(
     tod: Res<TimeOfDay>,
-    camera: Query<&GlobalTransform, With<PlayerCamera>>,
+    camera: Query<&GlobalTransform, With<SkyCenter>>,
     mut rig: Query<&mut Transform, With<SkyRig>>,
     mut clear: ResMut<ClearColor>,
 ) {

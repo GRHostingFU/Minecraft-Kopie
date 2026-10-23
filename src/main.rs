@@ -1,27 +1,34 @@
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use minecraft_kopie::VoxelGamePlugins;
-use minecraft_kopie::settings::{DEFAULT_RENDER_DISTANCE, clamp_render_distance};
-use minecraft_kopie::world::storage;
+use minecraft_kopie::session::{AppState, GameMode, PendingGame, seed_from_text};
+use minecraft_kopie::settings::{self, SAVES_DIR};
 use minecraft_kopie::world::streaming::WorldSettings;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: minecraft_kopie [--seed N] [--render-distance N] [--save-dir PATH]";
+const USAGE: &str = "usage: minecraft_kopie [--save-dir PATH [--seed N] [--creative]] [--render-distance N]\n\
+    Without --save-dir the title screen opens. With it, that world is created or loaded and started directly.";
 
-fn parse_args() -> WorldSettings {
-    let mut seed: Option<u32> = None;
-    let mut render_distance: Option<i32> = None;
-    let mut save_dir = PathBuf::from("saves/world1");
-    let mut args = std::env::args().skip(1);
-    while let Some(a) = args.next() {
-        let mut value = |name: &str| args.next().unwrap_or_else(|| panic!("{name} needs a value\n{USAGE}"));
+/// What the command line asks for.
+struct Args {
+    seed: Option<String>,
+    render_distance: Option<i32>,
+    save_dir: Option<PathBuf>,
+    creative: bool,
+}
+
+fn parse_args() -> Args {
+    let mut args = Args { seed: None, render_distance: None, save_dir: None, creative: false };
+    let mut it = std::env::args().skip(1);
+    while let Some(a) = it.next() {
+        let mut value = |name: &str| it.next().unwrap_or_else(|| panic!("{name} needs a value\n{USAGE}"));
         match a.as_str() {
-            "--seed" => seed = Some(value("--seed").parse().expect("seed must be a non-negative integer")),
+            "--seed" => args.seed = Some(value("--seed")),
             "--render-distance" => {
-                render_distance =
-                    Some(clamp_render_distance(value("--render-distance").parse::<i32>().expect("integer")))
+                args.render_distance = Some(settings::clamp_render_distance(value("--render-distance").parse::<i32>().expect("integer")))
             }
-            "--save-dir" => save_dir = PathBuf::from(value("--save-dir")),
+            "--save-dir" => args.save_dir = Some(PathBuf::from(value("--save-dir"))),
+            "--creative" => args.creative = true,
             "-h" | "--help" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -29,33 +36,35 @@ fn parse_args() -> WorldSettings {
             other => panic!("unknown argument {other}\n{USAGE}"),
         }
     }
-    // An existing world keeps its seed and its last render distance (unless --render-distance is
-    // given); a new one uses --seed or the clock.
-    let level = storage::load_level(&save_dir);
-    let seed = level.as_ref().map(|l| l.seed).or(seed).unwrap_or_else(|| {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_secs() as u32)
-    });
-    let render_distance = render_distance
-        .or(level.and_then(|l| l.options.render_distance).map(clamp_render_distance))
-        .unwrap_or(DEFAULT_RENDER_DISTANCE);
-    WorldSettings { seed, render_distance, save_dir }
+    args
 }
 
 fn main() {
-    let settings = parse_args();
-    info!("world seed {}", settings.seed);
-    App::new()
-        .insert_resource(settings)
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Minecraft Kopie".into(),
-                present_mode: PresentMode::AutoVsync,
-                ..default()
-            }),
-            // The save plugin intercepts the close button: it writes the world first, then exits.
-            close_when_requested: false,
+    let args = parse_args();
+    // Global options (video, controls, audio) are shared by every world.
+    let options = settings::load_options(Path::new(SAVES_DIR));
+    let render_distance = args.render_distance.unwrap_or(options.render_distance);
+
+    let mut app = App::new();
+    // The world settings of the title screen's panorama; a started world replaces them.
+    app.insert_resource(WorldSettings { seed: 1, render_distance, save_dir: PathBuf::from(SAVES_DIR).join(".panorama") })
+        .insert_resource(options.settings);
+    if let Some(dir) = args.save_dir {
+        let name = dir.file_name().map_or("World".to_string(), |n| n.to_string_lossy().into_owned());
+        let mode = if args.creative { GameMode::Creative } else { GameMode::Survival };
+        app.insert_resource(PendingGame { dir, seed: seed_from_text(args.seed.as_deref().unwrap_or("")), mode, name });
+        app.insert_state(AppState::InGame);
+    }
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Minecraft Kopie".into(),
+            present_mode: if options.settings.vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync },
             ..default()
-        }))
-        .add_plugins(VoxelGamePlugins)
-        .run();
+        }),
+        // The save plugin intercepts the close button: it writes the world first, then exits.
+        close_when_requested: false,
+        ..default()
+    }))
+    .add_plugins(VoxelGamePlugins)
+    .run();
 }

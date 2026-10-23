@@ -4,11 +4,12 @@
 
 use super::controller::{InputCapture, Player, PlayerCamera};
 use super::interaction::HandSwing;
-use crate::inventory::{Inventory, Item};
+use crate::inventory::Inventory;
+use crate::items::Item;
 use crate::rendering::AtlasHandle;
 use crate::rendering::atlas::tile_uv_rect;
 use crate::rendering::sky::TimeOfDay;
-use crate::world::block::{BlockId, Face};
+use crate::world::block::{BlockId, Face, Shape};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -158,10 +159,16 @@ pub fn icon_quad_mesh(tile: u8) -> Mesh {
     b.build()
 }
 
-fn item_mesh(item: Item) -> Mesh {
+/// Blocks that are shown as a small textured cube; everything else (tools, torches, glass, ...)
+/// as a flat icon.
+pub fn is_cube_item(item: Item) -> bool {
+    item.as_block().is_some_and(|b| b.shape() == Shape::Cube && !b.is_translucent())
+}
+
+pub fn item_mesh(item: Item) -> Mesh {
     match item.as_block() {
-        Some(block) => block_cube_mesh(block),
-        None => icon_quad_mesh(item.icon_tile()),
+        Some(block) if is_cube_item(item) => block_cube_mesh(block),
+        _ => icon_quad_mesh(item.icon_tile()),
     }
 }
 
@@ -274,13 +281,15 @@ pub struct ViewModelPlugin;
 
 impl Plugin for ViewModelPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<HandAnimation>()
-            .add_systems(PostStartup, spawn_view_model)
-            .add_systems(Update, (animate_hand, swap_held_model, shade_hand).chain());
+        app.init_resource::<HandAnimation>().add_systems(
+            Update,
+            (animate_hand, swap_held_model, shade_hand).chain().run_if(in_state(crate::session::AppState::InGame)),
+        );
     }
 }
 
-fn spawn_view_model(
+/// Builds the hand under the player camera (runs right after the player was spawned).
+pub fn spawn_view_model(
     mut commands: Commands,
     atlas: Res<AtlasHandle>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -288,6 +297,8 @@ fn spawn_view_model(
     player_camera: Query<Entity, With<PlayerCamera>>,
 ) {
     let Ok(parent) = player_camera.single() else { return };
+    // A new session starts with a fresh hand (nothing shown yet).
+    commands.insert_resource(HandAnimation::default());
     let layer = RenderLayers::layer(VIEW_MODEL_LAYER);
     let textured = |alpha_mode| StandardMaterial {
         base_color_texture: Some(atlas.0.clone()),
@@ -400,7 +411,7 @@ fn swap_held_model(
     }
     let Some(item) = held else { return };
     let mesh = assets.meshes.entry(item).or_insert_with(|| meshes.add(item_mesh(item))).clone();
-    let is_block = item.as_block().is_some();
+    let is_block = is_cube_item(item);
     let material = if is_block { assets.block_material.clone() } else { assets.icon_material.clone() };
     // Blocks sit in the palm, slightly turned so three faces show; icons are held upright.
     let transform = if is_block {

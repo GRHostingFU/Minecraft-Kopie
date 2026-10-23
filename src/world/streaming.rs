@@ -38,6 +38,11 @@ pub struct Generator(pub Arc<TerrainGenerator>);
 #[derive(Resource, Default)]
 struct GenTasks(HashMap<ChunkPos, Task<Chunk>>);
 
+/// Throws away every loaded chunk and every running generation task (a different world is about
+/// to be shown). Unsaved edits are lost, so save first.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct WorldReset;
+
 /// Positions unloaded this frame; the renderer drains it to despawn meshes.
 #[derive(Resource, Default)]
 pub struct RemovedChunks(pub Vec<ChunkPos>);
@@ -59,8 +64,26 @@ impl Plugin for ChunkStreamingPlugin {
             .init_resource::<GenTasks>()
             .init_resource::<RemovedChunks>()
             .insert_resource(AutosaveTimer(Timer::new(Duration::from_secs(AUTOSAVE_SECS), TimerMode::Repeating)))
-            .add_systems(Update, (request_chunks, collect_chunks, unload_chunks, autosave_chunks).chain())
+            .add_message::<WorldReset>()
+            .add_systems(Update, (reset_world, request_chunks, collect_chunks, unload_chunks, autosave_chunks).chain())
             .add_systems(Last, save_on_exit.in_set(OnAppExitSystems).after(ExitSystems));
+    }
+}
+
+fn reset_world(
+    mut resets: MessageReader<WorldReset>,
+    mut tasks: ResMut<GenTasks>,
+    mut world: ResMut<VoxelWorld>,
+    mut removed: ResMut<RemovedChunks>,
+) {
+    if resets.read().next().is_none() {
+        return;
+    }
+    tasks.0.clear();
+    let all: Vec<ChunkPos> = world.loaded_positions().collect();
+    for pos in all {
+        world.remove_chunk(pos);
+        removed.0.push(pos);
     }
 }
 

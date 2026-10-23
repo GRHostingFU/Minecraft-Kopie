@@ -71,17 +71,21 @@ impl VoxelWorld {
         let Some(chunk) = self.chunks.get_mut(&cp) else {
             return false;
         };
-        if chunk.get(x, y, z) == id {
+        let old = chunk.get(x, y, z);
+        if old == id {
             return true;
         }
+        let emitter = old.light() > 0 || id.light() > 0;
         let chunk = Arc::make_mut(chunk);
         chunk.set(x, y, z, id);
         chunk.modified = true;
         self.needs_mesh.insert(cp);
         // Edits on a chunk border change the neighbour's faces and AO too
         // (including the diagonal neighbours at corners).
-        let (dx_lo, dx_hi) = (x == 0, x == 15);
-        let (dz_lo, dz_hi) = (z == 0, z == 15);
+        // Block light reaches 14 blocks into the neighbours, so a changed emitter relights them all.
+        let reach = if emitter { 14 } else { 1 };
+        let (dx_lo, dx_hi) = (x < reach, x >= 16 - reach);
+        let (dz_lo, dz_hi) = (z < reach, z >= 16 - reach);
         for dx in [-1, 0, 1] {
             for dz in [-1, 0, 1] {
                 let touches_x = dx == 0 || (dx == -1 && dx_lo) || (dx == 1 && dx_hi);
@@ -125,6 +129,14 @@ impl VoxelWorld {
         if self.chunks.contains_key(&pos) {
             self.needs_mesh.insert(pos);
         }
+    }
+
+    /// Whether nothing opaque lies above `pos` in its column (the sky is visible from there).
+    /// Unloaded columns count as covered.
+    pub fn sky_exposed(&self, pos: IVec3) -> bool {
+        let (cp, [lx, _, lz]) = split_world_pos(pos);
+        let Some(chunk) = self.chunks.get(&cp) else { return false };
+        ((pos.y + 1).max(0) as usize..super::chunk::CHUNK_H).all(|y| !chunk.get(lx, y, lz).is_opaque())
     }
 
     /// Highest solid block in the column containing `(x, z)`.

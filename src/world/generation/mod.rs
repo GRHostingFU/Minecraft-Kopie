@@ -1,10 +1,19 @@
 //! Deterministic procedural terrain: continents, hills, mountains, biomes,
-//! 3D caves, oceans and trees. Pure functions of `(seed, x, z)` so chunks can be
-//! generated independently on any thread and still line up at their borders.
+//! 3D caves, ore veins, oceans, trees and villages. Pure functions of `(seed, x, z)` so chunks can
+//! be generated independently on any thread and still line up at their borders.
+
+pub mod caves;
+pub mod ores;
+pub mod villages;
 
 use super::block::BlockId;
 use super::chunk::{CHUNK_H, CHUNK_W, Chunk, ChunkPos};
+use bevy::math::IVec2;
+use caves::Caves;
 use noise::{Fbm, MultiFractal, NoiseFn, OpenSimplex};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use villages::Village;
 
 pub const SEA_LEVEL: i32 = 62;
 const TREE_MARGIN: i32 = 2;
@@ -35,9 +44,9 @@ pub struct TerrainGenerator {
     ridges: Fbm<OpenSimplex>,
     temperature: Fbm<OpenSimplex>,
     humidity: Fbm<OpenSimplex>,
-    cave_a: OpenSimplex,
-    cave_b: OpenSimplex,
-    caverns: Fbm<OpenSimplex>,
+    caves: Caves,
+    /// Planned villages per grid cell (`None` = the cell has none), computed on first use.
+    villages: Mutex<HashMap<IVec2, Option<Arc<Village>>>>,
 }
 
 fn fbm(seed: u32, octaves: usize) -> Fbm<OpenSimplex> {
@@ -71,9 +80,8 @@ impl TerrainGenerator {
             ridges: fbm(seed.wrapping_add(3), 5),
             temperature: fbm(seed.wrapping_add(4), 3),
             humidity: fbm(seed.wrapping_add(5), 3),
-            cave_a: OpenSimplex::new(seed.wrapping_add(6)),
-            cave_b: OpenSimplex::new(seed.wrapping_add(7)),
-            caverns: fbm(seed.wrapping_add(8), 3),
+            caves: Caves::new(seed),
+            villages: Mutex::new(HashMap::new()),
         }
     }
 
@@ -114,16 +122,27 @@ impl TerrainGenerator {
         Column { height, biome }
     }
 
-    fn is_cave(&self, x: i32, y: i32, z: i32) -> bool {
-        let (fx, fy, fz) = (x as f64, y as f64, z as f64);
-        // "Spaghetti" tunnels: the intersection of two noise zero-crossings.
-        let a = self.cave_a.get([fx / 38.0, fy / 26.0, fz / 38.0]);
-        let b = self.cave_b.get([fx / 38.0, fy / 26.0, fz / 38.0]);
-        if a * a + b * b < 0.0032 {
-            return true;
+    /// The village of grid cell `cell`, planned on first use.
+    pub fn village_in_cell(&self, cell: IVec2) -> Option<Arc<Village>> {
+        if let Some(v) = self.villages.lock().ok()?.get(&cell) {
+            return v.clone();
         }
-        // Large caverns, only deep underground.
-        y < 48 && self.caverns.get([fx / 70.0, fy / 40.0, fz / 70.0]) > 0.60
+        // Planned outside the lock (it samples the terrain); a racing thread computes the same result.
+        let planned = villages::plan(self, cell).map(Arc::new);
+        if let Ok(mut cache) = self.villages.lock() {
+            cache.insert(cell, planned.clone());
+        }
+        planned
+    }
+
+    /// The village whose area contains the world column `(x, z)`, if any.
+    pub fn village_at(&self, x: i32, z: i32) -> Option<Arc<Village>> {
+        self.village_in_cell(villages::cell_of(x, z)).filter(|v| v.contains_column(x, z))
+    }
+
+    /// Whether the block `(x, y, z)` is carved out by a cave.
+    pub fn is_cave(&self, x: i32, y: i32, z: i32) -> bool {
+        self.caves.is_cave(x, y, z)
     }
 
     fn tree_chance(&self, biome: Biome) -> u32 {
@@ -161,6 +180,9 @@ impl TerrainGenerator {
                     Biome::Plains | Biome::Forest => (BlockId::GRASS, BlockId::DIRT, 3),
                 };
                 let protect_shore = height <= SEA_LEVEL + 2;
+                // Tunnels may break through the surface in rare patches, never at the shore.
+                let margin = if protect_shore { 3 } else { self.caves.ceiling_margin(wx, wz) };
+                let sandstone_depth = if matches!(biome, Biome::Desert | Biome::Beach) { depth + 3 } else { 0 };
                 for y in 0..=height {
                     // Solid bedrock floor with a ragged top (y = 1..3).
                     let id = if y == 0 || (y < 4 && hash(self.seed, wx, wz, y as u32).is_multiple_of(3)) {
@@ -169,11 +191,15 @@ impl TerrainGenerator {
                         surface
                     } else if y > height - depth {
                         subsurface
+                    } else if y > height - sandstone_depth {
+                        BlockId::SANDSTONE
                     } else {
                         BlockId::STONE
                     };
-                    let carve =
-                        y > 3 && y < height - 3 && !(protect_shore && y > height - 8) && self.is_cave(wx, y, wz);
+                    let carve = y > 3
+                        && y < height - margin
+                        && !(protect_shore && y > height - 8)
+                        && self.caves.is_cave(wx, y, wz);
                     chunk.set(lx, y as usize, lz, if carve { BlockId::AIR } else { id });
                 }
                 for y in (height + 1)..=SEA_LEVEL {
@@ -181,6 +207,10 @@ impl TerrainGenerator {
                 }
             }
         }
+
+        ores::place(self.seed, &mut chunk, pos.x, pos.y);
+
+        let village = self.village_in_cell(villages::cell_of(ox, oz)).filter(|v| v.overlaps_chunk(pos));
 
         // Trees: every column in the margin may host one; only blocks inside this chunk are written.
         for tz in -TREE_MARGIN..(CHUNK_W as i32 + TREE_MARGIN) {
@@ -191,6 +221,9 @@ impl TerrainGenerator {
                     continue;
                 }
                 let (wx, wz) = (ox + tx, oz + tz);
+                if village.as_ref().is_some_and(|v| v.contains_column(wx, wz)) {
+                    continue;
+                }
                 let h = hash(self.seed, wx, wz, 0xA11CE);
                 if !h.is_multiple_of(chance) {
                     continue;
@@ -198,6 +231,10 @@ impl TerrainGenerator {
                 let trunk = 4 + (h >> 8) as i32 % 3;
                 self.place_tree(&mut chunk, tx, height + 1, tz, trunk, h);
             }
+        }
+
+        if let Some(v) = village {
+            v.apply(&mut chunk, pos);
         }
         chunk
     }
@@ -326,5 +363,73 @@ mod tests {
         let carved =
             (0..32).flat_map(|x| (10..50).map(move |y| (x, y))).filter(|&(x, y)| g.is_cave(x * 5, y, x * 3)).count();
         assert!(carved > 0);
+    }
+
+    fn count_blocks(chunks: &[Chunk], b: BlockId) -> usize {
+        chunks.iter().map(|c| c.raw().iter().filter(|x| **x == b).count()).sum()
+    }
+
+    #[test]
+    fn real_chunks_contain_every_ore_and_open_caves() {
+        let g = TerrainGenerator::new(2024);
+        let chunks: Vec<Chunk> = (0..8).flat_map(|z| (0..8).map(move |x| IVec2::new(x, z))).map(|p| g.generate(p)).collect();
+        for ore in [BlockId::COAL_ORE, BlockId::IRON_ORE, BlockId::GOLD_ORE, BlockId::REDSTONE_ORE, BlockId::DIAMOND_ORE] {
+            assert!(count_blocks(&chunks, ore) > 0, "{} missing", ore.name());
+        }
+        assert!(count_blocks(&chunks, BlockId::COAL_ORE) > count_blocks(&chunks, BlockId::DIAMOND_ORE));
+        // Underground voids: air below y = 40 somewhere.
+        let hollow = chunks.iter().any(|c| (5..40).any(|y| (0..16).any(|z| (0..16).any(|x| c.get(x, y, z).is_air()))));
+        assert!(hollow, "no cave below y = 40");
+        // Ores sit inside the rock: diamonds only low.
+        for c in &chunks {
+            for y in 20..CHUNK_H {
+                for z in 0..16 {
+                    for x in 0..16 {
+                        assert_ne!(c.get(x, y, z), BlockId::DIAMOND_ORE);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn deserts_have_a_sandstone_layer() {
+        let g = TerrainGenerator::new(2024);
+        let mut seen = false;
+        'scan: for gx in -60..60 {
+            for gz in -60..60 {
+                let (x, z) = (gx * 24, gz * 24);
+                let col = g.column(x, z);
+                if col.biome == Biome::Desert {
+                    let chunk = g.generate(IVec2::new(x.div_euclid(16), z.div_euclid(16)));
+                    let (lx, lz) = (x.rem_euclid(16) as usize, z.rem_euclid(16) as usize);
+                    let below = chunk.get(lx, (col.height - 6) as usize, lz);
+                    if below == BlockId::SANDSTONE {
+                        seen = true;
+                        break 'scan;
+                    }
+                }
+            }
+        }
+        assert!(seen, "no desert column with sandstone found");
+    }
+
+    #[test]
+    fn villages_show_up_in_generated_terrain() {
+        let g = TerrainGenerator::new(5);
+        let cell = (-6..6)
+            .flat_map(|z| (-6..6).map(move |x| IVec2::new(x, z)))
+            .find(|c| g.village_in_cell(*c).is_some())
+            .expect("a village within 12x12 cells");
+        let v = g.village_in_cell(cell).unwrap();
+        let chunks: Vec<Chunk> = (-3..=3)
+            .flat_map(|dz| (-3..=3).map(move |dx| (dx, dz)))
+            .map(|(dx, dz)| g.generate(IVec2::new(v.center.x.div_euclid(16) + dx, v.center.y.div_euclid(16) + dz)))
+            .collect();
+        assert!(count_blocks(&chunks, BlockId::CRAFTING_TABLE) >= 3);
+        assert!(count_blocks(&chunks, BlockId::GLASS) >= 4 || count_blocks(&chunks, BlockId::SANDSTONE) > 100);
+        assert!(count_blocks(&chunks, BlockId::TORCH) >= 4);
+        // No trees inside the village area: logs only come from the houses' pillars (plains) .
+        assert_eq!(g.village_at(v.center.x, v.center.y).map(|x| x.center), Some(v.center));
     }
 }

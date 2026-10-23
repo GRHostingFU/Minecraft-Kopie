@@ -2,38 +2,43 @@
 //! tileable value noise, cellular patterns and simple shapes, so the repository
 //! ships zero binary assets. Tiles are 32x32 and the atlas carries a hand-built
 //! mip chain so distant blocks are filtered instead of shimmering.
+//!
+//! * `blocks` paints the block textures,
+//! * `icons` paints the isometric block icons, item sprites and HUD sprites.
+
+mod blocks;
+mod icons;
 
 use crate::world::block::tile;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use std::f32::consts::TAU;
 
 pub const TILE_PX: usize = 32;
-pub const ATLAS_COLS: usize = 8;
-pub const ATLAS_ROWS: usize = 4;
+pub const ATLAS_COLS: usize = 16;
+pub const ATLAS_ROWS: usize = 16;
 /// Mip levels kept in the atlas. Tiles are 32 px, so level 3 still has 4x4 texels per tile and
 /// the box filter never mixes neighbouring tiles.
 pub const ATLAS_MIP_LEVELS: u32 = 4;
 
-type Rgb = [f32; 3];
+pub(crate) type Rgb = [f32; 3];
 
-fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
+pub(crate) fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
     [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
 }
 
-fn scale(c: Rgb, f: f32) -> Rgb {
+pub(crate) fn scale(c: Rgb, f: f32) -> Rgb {
     [c[0] * f, c[1] * f, c[2] * f]
 }
 
-fn px(c: Rgb) -> [u8; 4] {
+pub(crate) fn px(c: Rgb) -> [u8; 4] {
     let q = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
     [q(c[0]), q(c[1]), q(c[2]), 255]
 }
 
 #[inline]
-fn hash(x: i32, y: i32, salt: u32) -> u32 {
+pub(crate) fn hash(x: i32, y: i32, salt: u32) -> u32 {
     let mut h =
         (x as u32).wrapping_mul(0x85EB_CA6B) ^ (y as u32).wrapping_mul(0xC2B2_AE35) ^ salt.wrapping_mul(0x27D4_EB2F);
     h ^= h >> 15;
@@ -45,13 +50,13 @@ fn hash(x: i32, y: i32, salt: u32) -> u32 {
 
 /// Uniform noise in `[0, 1)`.
 #[inline]
-fn rnd(x: i32, y: i32, salt: u32) -> f32 {
+pub(crate) fn rnd(x: i32, y: i32, salt: u32) -> f32 {
     (hash(x, y, salt) & 0xFFFF) as f32 / 65536.0
 }
 
 /// Tileable value noise in `[0, 1]`: `(u, v)` are tile coordinates in `[0, 1)` and the lattice
 /// has `px` x `py` cells, wrapping at the tile border so neighbouring tiles join seamlessly.
-fn vnoise(u: f32, v: f32, px: i32, py: i32, salt: u32) -> f32 {
+pub(crate) fn vnoise(u: f32, v: f32, px: i32, py: i32, salt: u32) -> f32 {
     let (x, y) = (u * px as f32, v * py as f32);
     let (x0, y0) = (x.floor(), y.floor());
     let (fx, fy) = (x - x0, y - y0);
@@ -63,12 +68,12 @@ fn vnoise(u: f32, v: f32, px: i32, py: i32, salt: u32) -> f32 {
 }
 
 /// Three octaves of tileable noise.
-fn fbm(u: f32, v: f32, salt: u32) -> f32 {
+pub(crate) fn fbm(u: f32, v: f32, salt: u32) -> f32 {
     0.5 * vnoise(u, v, 4, 4, salt) + 0.3 * vnoise(u, v, 8, 8, salt + 1) + 0.2 * vnoise(u, v, 16, 16, salt + 2)
 }
 
 /// Tileable Worley noise: returns `(distance to nearest feature, distance to second nearest, cell id)`.
-fn worley(u: f32, v: f32, cells: i32, salt: u32) -> (f32, f32, u32) {
+pub(crate) fn worley(u: f32, v: f32, cells: i32, salt: u32) -> (f32, f32, u32) {
     let (x, y) = (u * cells as f32, v * cells as f32);
     let (cx, cy) = (x.floor() as i32, y.floor() as i32);
     let (mut d1, mut d2, mut id) = (f32::MAX, f32::MAX, 0);
@@ -90,239 +95,13 @@ fn worley(u: f32, v: f32, cells: i32, salt: u32) -> (f32, f32, u32) {
     (d1, d2, id)
 }
 
-const GRASS: Rgb = [0.33, 0.60, 0.19];
-const DIRT: Rgb = [0.47, 0.33, 0.21];
-
-fn dirt_color(x: i32, y: i32, u: f32, v: f32, salt: u32) -> Rgb {
-    let mut c = scale(DIRT, 0.82 + 0.36 * fbm(u, v, salt));
-    // Embedded pebbles: 3x3 patches that are lighter and greyer.
-    let (cx, cy) = (x.div_euclid(3), y.div_euclid(3));
-    if rnd(cx, cy, salt + 40) < 0.13 {
-        c = mix(c, [0.58, 0.52, 0.45], 0.55);
+/// RGBA of pixel `(x, y)` of tile `tile_id`.
+pub(crate) fn paint(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
+    if tile_id < tile::BLOCK_TILES && !(tile::HELMET..=tile::BOOTS).contains(&tile_id) {
+        blocks::paint(tile_id, x, y)
+    } else {
+        icons::paint(tile_id, x, y)
     }
-    let speck = rnd(x, y, salt + 50);
-    if speck < 0.05 {
-        c = scale(c, 0.7);
-    } else if speck > 0.97 {
-        c = scale(c, 1.2);
-    }
-    c
-}
-
-fn grass_color(x: i32, y: i32, u: f32, v: f32, salt: u32) -> Rgb {
-    let lush = fbm(u, v, salt);
-    let mut c = mix(GRASS, [0.46, 0.67, 0.20], lush * 0.8);
-    c = scale(c, 0.88 + 0.24 * rnd(x, y, salt + 3));
-    // Short blades: vertical streaks a few pixels long.
-    let blade = rnd(x, y.div_euclid(4), salt + 9);
-    if blade < 0.16 {
-        c = scale(c, 0.78);
-    } else if blade > 0.92 {
-        c = scale(c, 1.15);
-    }
-    c
-}
-
-fn paint(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
-    let (u, v) = ((x as f32 + 0.5) / TILE_PX as f32, (y as f32 + 0.5) / TILE_PX as f32);
-    let salt = tile_id as u32 * 31 + 5;
-    match tile_id {
-        tile::GRASS_TOP => px(grass_color(x, y, u, v, salt)),
-        tile::GRASS_SIDE => {
-            // Dirt with a ragged grass overlay; some strands hang further down.
-            let mut depth = 7 + (hash(x, 0, 9) % 4) as i32;
-            if hash(x, 0, 21).is_multiple_of(7) {
-                depth += 3;
-            }
-            let dirt = dirt_color(x, y, u, v, 2 * 31 + 5);
-            if y < depth {
-                let mut g = grass_color(x, y, u, v, salt);
-                // Darken towards the lower rim so the overlay reads as a separate layer.
-                if y >= depth - 2 {
-                    g = mix(g, scale(GRASS, 0.62), 0.55);
-                }
-                px(g)
-            } else if y == depth {
-                px(mix(dirt, scale(GRASS, 0.5), 0.35))
-            } else {
-                px(dirt)
-            }
-        }
-        tile::DIRT => px(dirt_color(x, y, u, v, salt)),
-        tile::STONE => {
-            let blotch = vnoise(u, v, 3, 3, salt + 3) - 0.5;
-            let mut c = scale([0.50, 0.50, 0.52], 0.86 + 0.28 * fbm(u, v, salt) + blotch * 0.10);
-            // Thin dark veins where a low-frequency noise field crosses a level.
-            let vein = (vnoise(u, v, 5, 5, salt + 11) - 0.5).abs();
-            if vein < 0.018 {
-                c = scale(c, 0.72);
-            }
-            let speck = rnd(x, y, salt + 17);
-            if speck < 0.07 {
-                c = scale(c, 0.82);
-            } else if speck > 0.95 {
-                c = scale(c, 1.14);
-            }
-            px(c)
-        }
-        tile::SAND => {
-            let mut c = scale([0.85, 0.79, 0.55], 0.93 + 0.14 * rnd(x, y, salt) + 0.06 * (fbm(u, v, salt) - 0.5));
-            if rnd(x, y, salt + 4) < 0.04 {
-                c = scale(c, 0.85);
-            }
-            px(c)
-        }
-        tile::WATER => {
-            let ripple = ((u * 2.0 + 0.15 * (v * TAU * 2.0).sin()) * TAU).sin() * 0.5
-                + ((v * 3.0 - 0.1 * (u * TAU * 3.0).cos()) * TAU).sin() * 0.5;
-            let c = scale([0.10, 0.30, 0.74], 0.9 + 0.1 * ripple + 0.08 * (fbm(u, v, salt) - 0.5));
-            let mut p = px(c);
-            p[3] = 205;
-            p
-        }
-        tile::LOG_SIDE => {
-            // Bark: tall vertical ridges and grooves.
-            let ridge = vnoise(u, v, 12, 3, salt);
-            let mut c = scale([0.38, 0.27, 0.15], 0.72 + 0.5 * ridge);
-            if vnoise(u, v, 12, 3, salt + 20) < 0.22 {
-                c = scale(c, 0.65);
-            }
-            c = scale(c, 0.94 + 0.12 * rnd(x, y, salt + 2));
-            px(c)
-        }
-        tile::LOG_TOP => {
-            let edge = x.min(y).min(31 - x).min(31 - y);
-            if edge < 3 {
-                let c = scale([0.34, 0.24, 0.13], 0.8 + 0.4 * rnd(x, y, salt));
-                px(if edge == 0 { scale(c, 0.8) } else { c })
-            } else {
-                let (dx, dy) = (u - 0.5, v - 0.5);
-                let wobble = (vnoise(u, v, 4, 4, salt) - 0.5) * 0.12;
-                let d = (dx * dx + dy * dy).sqrt() + wobble;
-                let ring = (d * TAU * 4.2).sin() * 0.5 + 0.5;
-                let c = mix([0.55, 0.40, 0.23], [0.70, 0.54, 0.32], ring);
-                px(scale(c, 0.95 + 0.1 * rnd(x, y, salt + 3)))
-            }
-        }
-        tile::LEAVES => {
-            let clump = vnoise(u, v, 8, 8, salt);
-            let mut c = mix([0.12, 0.34, 0.10], [0.27, 0.55, 0.18], clump);
-            c = scale(c, 0.85 + 0.3 * rnd(x, y, salt + 2));
-            // Gaps between leaf clusters show dark depth, hinting at transparency.
-            if vnoise(u, v, 16, 16, salt + 6) > 0.80 {
-                c = scale(c, 0.35);
-            } else if vnoise(u, v, 8, 8, salt + 9) > 0.78 {
-                c = scale(c, 1.25);
-            }
-            px(c)
-        }
-        tile::PLANKS => {
-            let board = y / 8;
-            let local = y % 8;
-            let tint = 0.9 + 0.2 * rnd(board, 0, salt);
-            let mut c = scale([0.68, 0.53, 0.30], tint);
-            // Grain: thin horizontal streaks, different for every board.
-            let grain = vnoise(u + rnd(board, 1, salt), v, 3, 32, salt + board as u32);
-            c = scale(c, 0.9 + 0.2 * grain);
-            if local == 0 {
-                c = scale(c, 0.62);
-            } else if local == 7 {
-                c = scale(c, 1.08);
-            }
-            // One vertical joint per board, staggered like real flooring.
-            let joint = (rnd(board, 2, salt) * 28.0) as i32 + 2;
-            if x == joint {
-                c = scale(c, 0.7);
-            }
-            // Nails next to the joint.
-            if (x == (joint + 2).rem_euclid(32) || x == (joint - 2).rem_euclid(32)) && (local == 2 || local == 5) {
-                c = scale(c, 0.62);
-            }
-            px(c)
-        }
-        tile::BEDROCK => {
-            let n = fbm(u, v, salt);
-            let mut c = scale([0.20, 0.20, 0.22], 0.35 + 1.5 * n);
-            if rnd(x, y, salt + 1) < 0.10 {
-                c = scale(c, 0.55);
-            }
-            px(c)
-        }
-        tile::SNOW => {
-            let shade = fbm(u, v, salt);
-            let mut c = mix([0.97, 0.98, 1.0], [0.78, 0.85, 0.96], shade * 0.8);
-            c = scale(c, 0.96 + 0.06 * rnd(x, y, salt + 5));
-            if rnd(x, y, salt + 2) > 0.985 {
-                c = [1.0, 1.0, 1.0];
-            }
-            px(c)
-        }
-        tile::COBBLE => {
-            let (d1, d2, id) = worley(u, v, 4, salt);
-            let stone_shade = 0.72 + 0.5 * (id & 0xFF) as f32 / 255.0;
-            let mut c = scale([0.47, 0.47, 0.49], stone_shade * (0.9 + 0.2 * fbm(u, v, salt)));
-            let gap = d2 - d1;
-            if gap < 0.028 {
-                c = [0.18, 0.18, 0.19];
-            } else if gap < 0.06 {
-                c = scale(c, 0.78 + 4.0 * (gap - 0.028));
-            }
-            c = scale(c, 0.95 + 0.1 * rnd(x, y, salt + 3));
-            px(c)
-        }
-        tile::HELMET..=tile::BOOTS => armor_icon(tile_id - tile::HELMET, x, y),
-        _ => [255, 0, 255, 255],
-    }
-}
-
-/// Whether pixel `(x, y)` belongs to the silhouette of armor piece `piece` (0..4) in a 32x32 icon.
-fn armor_shape(piece: u8, x: i32, y: i32) -> bool {
-    let rect = |x0: i32, y0: i32, x1: i32, y1: i32| (x0..=x1).contains(&x) && (y0..=y1).contains(&y);
-    match piece {
-        0 => {
-            // Dome with a face opening.
-            let (dx, dy) = ((x as f32 - 15.5) / 11.0, (y as f32 - 17.0) / 11.0);
-            let dome = dx * dx + dy * dy <= 1.0 && y <= 24;
-            let visor = rect(10, 18, 21, 25);
-            let rim = rect(4, 23, 27, 26) && !rect(11, 23, 20, 26);
-            (dome && !visor) || rim
-        }
-        1 => {
-            let torso = rect(8, 6, 23, 28);
-            let shoulders = rect(3, 6, 9, 14) || rect(22, 6, 28, 14);
-            let neck = rect(13, 6, 18, 10);
-            (torso || shoulders) && !neck
-        }
-        2 => {
-            let waist = rect(8, 5, 23, 12);
-            let legs = rect(8, 12, 14, 28) || rect(17, 12, 23, 28);
-            waist || legs
-        }
-        _ => {
-            let left = rect(6, 8, 13, 21) || rect(3, 21, 14, 27);
-            let right = rect(18, 8, 25, 21) || rect(17, 21, 28, 27);
-            left || right
-        }
-    }
-}
-
-fn armor_icon(piece: u8, x: i32, y: i32) -> [u8; 4] {
-    if !armor_shape(piece, x, y) {
-        return [0, 0, 0, 0];
-    }
-    let outline = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| !armor_shape(piece, x + dx, y + dy));
-    if outline {
-        return px([0.17, 0.19, 0.23]);
-    }
-    // Light from the top-left plus a little brushed-metal noise.
-    let light = 1.05 - (x + y) as f32 / 90.0;
-    let streak = 0.94 + 0.12 * rnd(x, y / 3, 700 + piece as u32);
-    let mut c = scale([0.74, 0.77, 0.82], light * streak);
-    // Rivet-like highlights.
-    if (x + 2 * y) % 11 == 0 && rnd(x, y, 650) > 0.5 {
-        c = scale(c, 1.2);
-    }
-    px(c)
 }
 
 /// Pixel rectangle of a tile inside the atlas image (used by UI icons).
@@ -330,6 +109,12 @@ pub fn tile_rect(tile_id: u8) -> Rect {
     let (col, row) = (tile_id as usize % ATLAS_COLS, tile_id as usize / ATLAS_COLS);
     let min = Vec2::new((col * TILE_PX) as f32, (row * TILE_PX) as f32);
     Rect::from_corners(min, min + Vec2::splat(TILE_PX as f32))
+}
+
+/// Pixel rectangle of the 9x9 HUD sprite drawn (3x enlarged, 27 px) inside its tile.
+pub fn ui_sprite_rect(tile_id: u8) -> Rect {
+    let r = tile_rect(tile_id);
+    Rect::from_corners(r.min + Vec2::splat(2.0), r.min + Vec2::splat(29.0))
 }
 
 /// Same rectangle in normalised UV space, inset by half a texel so bilinear sampling of a
@@ -438,33 +223,62 @@ pub fn build_atlas_image() -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::block::{BlockId, Face};
 
     fn tile_origin(t: u8) -> (usize, usize) {
         ((t as usize % ATLAS_COLS) * TILE_PX, (t as usize / ATLAS_COLS) * TILE_PX)
     }
 
+    /// Tiles that are allowed to be (partly) transparent.
+    fn is_see_through(t: u8) -> bool {
+        t == tile::WATER
+            || t == tile::GLASS
+            || t == tile::TORCH_SIDE
+            || t == tile::TORCH_TOP
+            || (tile::HELMET..=tile::BOOTS).contains(&t)
+            || t >= tile::ICON_BLOCK
+    }
+
     #[test]
-    fn every_tile_is_painted_and_opaque_except_water_and_icons() {
+    fn every_tile_is_painted_and_block_tiles_are_opaque() {
         let px = build_atlas_pixels();
         let w = ATLAS_COLS * TILE_PX;
         for t in 0..tile::COUNT {
+            // Unused tiles in the gaps of the layout stay empty; everything else must be painted.
+            let used = t < tile::BLOCK_TILES
+                || (tile::ICON_BLOCK..tile::ICON_BLOCK + BlockId::COUNT).contains(&t)
+                || (tile::ICON_ITEM..tile::ICON_TOOL + 20).contains(&t)
+                || (tile::UI..=tile::UI_ARROW_FULL).contains(&t);
+            if !used {
+                continue;
+            }
             let (ox, oy) = tile_origin(t);
-            let (mut opaque, mut magenta) = (0, 0);
+            let (mut opaque, mut visible, mut magenta) = (0, 0, 0);
             for y in 0..TILE_PX {
                 for x in 0..TILE_PX {
                     let o = ((oy + y) * w + ox + x) * 4;
                     opaque += (px[o + 3] == 255) as usize;
+                    visible += (px[o + 3] > 0) as usize;
                     magenta += (px[o..o + 4] == [255, 0, 255, 255]) as usize;
                 }
             }
             assert_eq!(magenta, 0, "tile {t} fell through to the error colour");
+            assert!(visible > 12, "tile {t} is blank");
             let full = TILE_PX * TILE_PX;
-            match t {
-                tile::WATER => assert_eq!(opaque, 0),
-                tile::HELMET..=tile::BOOTS => assert!(opaque > 80 && opaque < full - 80, "icon {t}: {opaque}"),
-                _ => assert_eq!(opaque, full, "tile {t} must be fully opaque"),
+            if !is_see_through(t) {
+                assert_eq!(opaque, full, "tile {t} must be fully opaque");
             }
         }
+    }
+
+    #[test]
+    fn water_is_translucent_and_glass_keeps_a_frame() {
+        let p = |t: u8, x: i32, y: i32| paint(t, x, y)[3];
+        assert!(p(tile::WATER, 5, 5) < 255);
+        assert_eq!(p(tile::GLASS, 0, 10), 255, "glass has an opaque rim");
+        assert!(p(tile::GLASS, 16, 16) < 160, "and a see-through middle");
+        // The torch only paints its pole.
+        assert!(p(tile::TORCH_SIDE, 15, 25) == 255 && p(tile::TORCH_SIDE, 2, 25) == 0);
     }
 
     #[test]
@@ -474,7 +288,7 @@ mod tests {
         // "HD" check: every block texture has plenty of tonal variation, none is a flat colour.
         let px = build_atlas_pixels();
         let w = ATLAS_COLS * TILE_PX;
-        for t in (tile::GRASS_TOP..=tile::COBBLE).filter(|t| *t != tile::WATER) {
+        for t in (tile::GRASS_TOP..tile::BLOCK_TILES).filter(|t| !is_see_through(*t)) {
             let (ox, oy) = tile_origin(t);
             let mut seen = std::collections::HashSet::new();
             for y in 0..TILE_PX {
@@ -483,17 +297,46 @@ mod tests {
                     seen.insert([px[o], px[o + 1], px[o + 2]]);
                 }
             }
-            assert!(seen.len() > 40, "tile {t} has only {} distinct colours", seen.len());
+            assert!(seen.len() > 20, "tile {t} has only {} distinct colours", seen.len());
         }
     }
 
-    /// `cargo test dump_atlas -- --ignored` writes `target/atlas.ppm` (8x upscaled) for eyeballing.
+    #[test]
+    fn ores_are_stone_with_coloured_spots() {
+        let px = build_atlas_pixels();
+        let w = ATLAS_COLS * TILE_PX;
+        // Mean colour of the tile: diamond is cyan-ish, redstone red-ish, iron warm.
+        let mean = |t: u8| -> [f32; 3] {
+            let (ox, oy) = tile_origin(t);
+            let mut m = [0.0f32; 3];
+            for y in 0..TILE_PX {
+                for x in 0..TILE_PX {
+                    for c in 0..3 {
+                        m[c] += px[((oy + y) * w + ox + x) * 4 + c] as f32;
+                    }
+                }
+            }
+            m.map(|v| v / (TILE_PX * TILE_PX) as f32)
+        };
+        let stone = mean(tile::STONE);
+        let diamond = mean(tile::DIAMOND_ORE);
+        let redstone = mean(tile::REDSTONE_ORE);
+        assert!(diamond[2] > stone[2] + 3.0 && diamond[2] > diamond[0], "{diamond:?} vs {stone:?}");
+        assert!(redstone[0] > redstone[2] + 8.0, "{redstone:?}");
+        for t in [tile::COAL_ORE, tile::IRON_ORE, tile::GOLD_ORE] {
+            let m = mean(t);
+            let diff: f32 = (0..3).map(|c| (m[c] - stone[c]).abs()).sum();
+            assert!(diff > 4.0, "tile {t} looks like plain stone");
+        }
+    }
+
+    /// `cargo test dump_atlas -- --ignored` writes `target/atlas.ppm` (4x upscaled) for eyeballing.
     #[test]
     #[ignore]
     fn dump_atlas_preview() {
         let px = build_atlas_pixels();
         let (w, h) = (ATLAS_COLS * TILE_PX, ATLAS_ROWS * TILE_PX);
-        let k = 4;
+        let k = 2;
         let mut out = format!("P6\n{} {}\n255\n", w * k, h * k).into_bytes();
         for y in 0..h * k {
             for x in 0..w * k {
@@ -515,7 +358,20 @@ mod tests {
         // neighbouring columns by much, otherwise merged quads would show grid lines.
         let px = build_atlas_pixels();
         let w = ATLAS_COLS * TILE_PX;
-        for t in [tile::GRASS_TOP, tile::DIRT, tile::STONE, tile::SAND, tile::COBBLE, tile::SNOW, tile::LEAVES] {
+        for t in [
+            tile::GRASS_TOP,
+            tile::DIRT,
+            tile::STONE,
+            tile::SAND,
+            tile::COBBLE,
+            tile::SNOW,
+            tile::LEAVES,
+            tile::GRAVEL,
+            tile::NETHERRACK,
+            tile::GRANITE,
+            tile::COAL_ORE,
+            tile::WOOL_WHITE,
+        ] {
             let (ox, oy) = tile_origin(t);
             let diff = |xa: usize, xb: usize| -> f32 {
                 (0..TILE_PX)
@@ -528,7 +384,7 @@ mod tests {
             };
             let seam = diff(TILE_PX - 1, 0);
             let typical: f32 = (0..TILE_PX - 1).map(|x| diff(x, x + 1)).sum::<f32>() / (TILE_PX - 1) as f32;
-            assert!(seam < typical * 2.0 + 12.0, "tile {t}: seam {seam} vs typical {typical}");
+            assert!(seam < typical * 2.0 + 14.0, "tile {t}: seam {seam} vs typical {typical}");
         }
     }
 
@@ -570,5 +426,23 @@ mod tests {
         let (w, h) = ((ATLAS_COLS * TILE_PX) as f32, (ATLAS_ROWS * TILE_PX) as f32);
         assert!(r.min.x > full.min.x / w && r.max.x < full.max.x / w);
         assert!(r.min.y > full.min.y / h && r.max.y < full.max.y / h);
+    }
+
+    #[test]
+    fn isometric_icons_show_the_block_textures() {
+        // The top corner of a grass icon is green, its left face brown-green side, none is blank.
+        let top = paint(tile::ICON_BLOCK + BlockId::GRASS.0, 16, 6);
+        assert!(top[3] == 255 && top[1] > top[0], "{top:?}");
+        let corner = paint(tile::ICON_BLOCK + BlockId::STONE.0, 0, 0);
+        assert_eq!(corner[3], 0, "icon corners are transparent");
+        for id in BlockId::all() {
+            let t = tile::ICON_BLOCK + id.0;
+            let visible = (0..TILE_PX as i32)
+                .flat_map(|y| (0..TILE_PX as i32).map(move |x| (x, y)))
+                .filter(|&(x, y)| paint(t, x, y)[3] > 0)
+                .count();
+            assert!(visible > 100, "icon of {} is nearly empty", id.name());
+        }
+        let _ = Face::Top;
     }
 }

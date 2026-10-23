@@ -1,14 +1,16 @@
 //! Saving orchestration. Everything that must survive a restart goes through here:
 //! modified chunks (`c.<x>.<z>.bin`) and `level.json` with the player position, inventory,
-//! time of day, seed and options.
+//! health and hunger, experience, furnaces, time of day, seed and game mode. (Options are global
+//! and live in `options.json`, see `settings`.)
 //!
 //! A save happens on a [`SaveRequest`] (pause menu, Esc), every 30 seconds, when the window is
 //! closed and, as a last resort, on any `AppExit`.
 
 use crate::inventory::Inventory;
-use crate::player::controller::Player;
+use crate::player::controller::{Player, SpawnPoint};
 use crate::rendering::sky::TimeOfDay;
-use crate::settings::GameSettings;
+use crate::session::{AppState, GameMode};
+use crate::survival::{Experience, Vitals};
 use crate::world::VoxelWorld;
 use crate::world::storage::{self, LEVEL_VERSION, LevelData, OptionsData};
 use crate::world::streaming::{WorldSettings, save_modified_chunks};
@@ -20,10 +22,12 @@ use std::path::Path;
 use std::time::Duration;
 
 /// Ask for an immediate, synchronous save of the whole world.
-#[derive(Message, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug, Default)]
 pub struct SaveRequest {
     /// Exit the game once the data is on disk.
     pub then_quit: bool,
+    /// Return to the title screen once the data is on disk.
+    pub then_title: bool,
 }
 
 /// Result of the most recent save, shown in the pause menu.
@@ -42,9 +46,13 @@ struct LevelAutosave(Timer);
 #[derive(SystemParam)]
 pub struct LevelSnapshot<'w, 's> {
     settings: Res<'w, WorldSettings>,
-    game: Res<'w, GameSettings>,
+    mode: Res<'w, GameMode>,
     tod: Res<'w, TimeOfDay>,
     inventory: Res<'w, Inventory>,
+    vitals: Res<'w, Vitals>,
+    xp: Res<'w, Experience>,
+    spawn: Res<'w, SpawnPoint>,
+    loaded: Res<'w, crate::player::LoadedLevel>,
     player: Query<'w, 's, (&'static Player, &'static Transform)>,
 }
 
@@ -52,6 +60,7 @@ impl LevelSnapshot<'_, '_> {
     /// `None` while the player has not been placed in the world yet (nothing worth saving).
     pub fn capture(&self) -> Option<LevelData> {
         let (p, t) = self.player.single().ok()?;
+        let name = self.loaded.0.as_ref().map_or_else(|| "World".to_string(), |l| l.name.clone());
         p.active.then(|| LevelData {
             version: LEVEL_VERSION,
             seed: self.settings.seed,
@@ -63,12 +72,16 @@ impl LevelSnapshot<'_, '_> {
             selected_slot: self.inventory.selected,
             flying: p.flying,
             inventory: Some(self.inventory.to_save()),
-            options: OptionsData {
-                render_distance: Some(self.settings.render_distance),
-                fov: Some(self.game.fov),
-                mouse_sensitivity: Some(self.game.mouse_sensitivity),
-                fullscreen: Some(self.game.fullscreen),
-            },
+            options: OptionsData::default(),
+            name,
+            game_mode: *self.mode,
+            last_played: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+            health: self.vitals.health,
+            food: self.vitals.food,
+            saturation: self.vitals.saturation,
+            xp_total: self.xp.total,
+            spawn_point: self.spawn.0.map(|v| v.to_array()),
+            furnaces: self.inventory.furnace_saves(),
         })
     }
 }
@@ -121,7 +134,7 @@ impl Plugin for SavePlugin {
 /// The window's close button saves first and only then quits (the default would just close it).
 fn request_save_on_close(mut closes: MessageReader<WindowCloseRequested>, mut saves: MessageWriter<SaveRequest>) {
     if closes.read().next().is_some() {
-        saves.write(SaveRequest { then_quit: true });
+        saves.write(SaveRequest { then_quit: true, then_title: false });
     }
 }
 
@@ -131,12 +144,15 @@ fn handle_save_requests(
     mut world: ResMut<VoxelWorld>,
     mut status: ResMut<SaveStatus>,
     mut exit: MessageWriter<AppExit>,
+    mut next: ResMut<NextState<AppState>>,
 ) {
     let mut quit = false;
+    let mut title = false;
     let mut any = false;
     for r in requests.read() {
         any = true;
         quit |= r.then_quit;
+        title |= r.then_title;
     }
     if !any {
         return;
@@ -149,6 +165,10 @@ fn handle_save_requests(
     }
     status.message = report.summary();
     status.ok = report.ok();
+    if title && report.ok() {
+        next.set(AppState::MainMenu);
+        status.message.clear();
+    }
     if quit {
         // A failed save keeps the game open once so the player can fix the disk and retry; asking
         // a second time quits regardless, so the window can never get stuck.

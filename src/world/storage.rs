@@ -3,7 +3,9 @@
 
 use super::block::BlockId;
 use super::chunk::{CHUNK_VOLUME, Chunk, ChunkPos};
-use crate::inventory::ItemStack;
+use crate::inventory::FurnaceSave;
+use crate::items::ItemStack;
+use crate::session::GameMode;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -12,7 +14,7 @@ use std::path::{Path, PathBuf};
 const MAGIC: &[u8; 4] = b"MKC1";
 
 /// Bumped whenever `level.json` gains fields that older builds cannot interpret.
-pub const LEVEL_VERSION: u32 = 2;
+pub const LEVEL_VERSION: u32 = 3;
 
 /// Everything about a world that is not stored in chunk files. New fields must carry
 /// `#[serde(default)]` so saves written by older versions keep loading.
@@ -33,15 +35,59 @@ pub struct LevelData {
     /// Inventory slots, armor slots, then the cursor stack. `None` = never saved (use the starter kit).
     #[serde(default)]
     pub inventory: Option<Vec<Option<ItemStack>>>,
+    /// Per-world options of old saves; options are global now (see `settings`), kept so that old
+    /// `level.json` files still parse.
     #[serde(default)]
     pub options: OptionsData,
+    /// Name shown in the world list.
+    #[serde(default = "default_name")]
+    pub name: String,
+    /// Worlds from before the game modes existed were creative sandboxes.
+    #[serde(default = "creative")]
+    pub game_mode: GameMode,
+    /// Seconds since the Unix epoch of the last save (for sorting the world list).
+    #[serde(default)]
+    pub last_played: u64,
+    #[serde(default = "full_health")]
+    pub health: f32,
+    #[serde(default = "full_food")]
+    pub food: f32,
+    #[serde(default = "default_saturation")]
+    pub saturation: f32,
+    #[serde(default)]
+    pub xp_total: u32,
+    /// Where the player respawns (the first spawn point of the world).
+    #[serde(default)]
+    pub spawn_point: Option<[f32; 3]>,
+    #[serde(default)]
+    pub furnaces: Vec<FurnaceSave>,
 }
 
 fn yes() -> bool {
     true
 }
 
-/// Options persisted with the world; `None` means "keep the default / command-line value".
+fn default_name() -> String {
+    "World".to_string()
+}
+
+fn creative() -> GameMode {
+    GameMode::Creative
+}
+
+fn full_health() -> f32 {
+    20.0
+}
+
+fn full_food() -> f32 {
+    20.0
+}
+
+fn default_saturation() -> f32 {
+    5.0
+}
+
+/// Options of old saves; `None` means "not stored".
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
 pub struct OptionsData {
     pub render_distance: Option<i32>,
@@ -54,6 +100,10 @@ impl LevelData {
     /// A brand-new world: only the seed is known. Written immediately so chunks saved before the
     /// first autosave can never be paired with a different seed.
     pub fn fresh(seed: u32) -> Self {
+        Self::new(seed, "World", GameMode::Survival)
+    }
+
+    pub fn new(seed: u32, name: &str, game_mode: GameMode) -> Self {
         Self {
             version: LEVEL_VERSION,
             seed,
@@ -66,6 +116,15 @@ impl LevelData {
             flying: false,
             inventory: None,
             options: OptionsData::default(),
+            name: name.to_string(),
+            game_mode,
+            last_played: 0,
+            health: full_health(),
+            food: full_food(),
+            saturation: default_saturation(),
+            xp_total: 0,
+            spawn_point: None,
+            furnaces: Vec::new(),
         }
     }
 }
