@@ -39,6 +39,7 @@ pub fn update_mob_target(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn attack_mobs(
     time: Res<Time>,
     mouse: Res<ButtonInput<MouseButton>>,

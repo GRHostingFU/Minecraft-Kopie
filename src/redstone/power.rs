@@ -6,7 +6,7 @@
 //! neighbours. Dust gives its power to the blocks it points at and to the block below it.
 //! Power in dust decays by one per block; see [`super::sim`] for the wire solver.
 
-use super::rules::dust_arms;
+use super::rules::{dust_arms, effective_arms};
 use crate::world::block::{BlockId, Facing, Kind};
 use crate::world::BlockQuery;
 use bevy::math::IVec3;
@@ -35,7 +35,8 @@ fn dust_emits<W: BlockQuery>(w: &W, pos: IVec3, toward: Facing, power: u8) -> u8
         horizontal => {
             let arms = dust_arms(|p| at(w, p), pos);
             let any = arms.iter().any(Option::is_some);
-            let pointing = Facing::HORIZONTAL.iter().position(|f| *f == horizontal).and_then(|i| arms[i]).is_some();
+            let eff = effective_arms(&arms);
+            let pointing = Facing::HORIZONTAL.iter().position(|f| *f == horizontal).is_some_and(|i| eff[i]);
             if pointing || !any { power } else { 0 }
         }
     }

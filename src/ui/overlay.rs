@@ -64,6 +64,7 @@ pub fn camera_fluid(world: &VoxelWorld, eye: Vec3) -> Option<FluidKind> {
     (eye.y < cell.y as f32 + surface).then_some(kind)
 }
 
+#[allow(clippy::type_complexity)]
 fn update_overlays(
     screen: Res<Screen>,
     health: Res<Health>,

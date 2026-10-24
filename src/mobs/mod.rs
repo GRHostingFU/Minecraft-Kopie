@@ -419,6 +419,7 @@ fn mob_physics(
 }
 
 /// Fire, lava and the sun.
+#[allow(clippy::too_many_arguments)]
 fn mob_environment(
     time: Res<Time>,
     world: Res<VoxelWorld>,
@@ -662,6 +663,7 @@ pub fn find_spawn_cell<W: BlockQuery>(w: &W, player: Vec3, daylight: f32, rng: &
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_mobs(
     mut commands: Commands,
     time: Res<Time>,
@@ -729,7 +731,7 @@ fn debug_spawn_keys(
 // Visuals
 // ---------------------------------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn animate_mobs(
     tod: Res<TimeOfDay>,
     assets: Option<Res<MobAssets>>,
@@ -851,7 +853,9 @@ mod tests {
     #[test]
     fn mobs_jump_up_single_steps_but_not_two_block_walls() {
         let mut w = Map::flat();
-        w.put(IVec3::new(4, 1, 0), BlockId::COBBLE);
+        for x in 4..=30 {
+            w.put(IVec3::new(x, 1, 0), BlockId::COBBLE);
+        }
         let (mut pos, mut vel) = (Vec3::new(0.5, 1.0, 0.5), Vec3::ZERO);
         run(&w, &mut pos, &mut vel, Vec2::new(3.0, 0.0), 3.0);
         assert!(pos.x > 5.0 && (pos.y - 2.0).abs() < 0.02, "climbed onto the step: {pos}");
@@ -883,8 +887,8 @@ mod tests {
             lava.put(IVec3::new(0, y, 0), BlockId::LAVA);
         }
         let (mut pos, mut vel) = (Vec3::new(0.5, 4.0, 0.5), Vec3::ZERO);
-        run(&lava, &mut pos, &mut vel, Vec2::ZERO, 2.0);
-        assert!(pos.y < 2.0, "lava pulls down: {pos}");
+        run(&lava, &mut pos, &mut vel, Vec2::ZERO, 4.0);
+        assert!(pos.y < 1.6, "lava pulls down: {pos}");
     }
 
     #[test]
@@ -895,7 +899,8 @@ mod tests {
         let forward = Vec2::new(-yaw.sin(), -yaw.cos());
         assert!((forward - Vec2::new(1.0, 0.0)).length() < 1e-5);
         assert!((turn_towards(0.0, 3.0, 0.5) - 0.5).abs() < 1e-6);
-        assert!((turn_towards(3.0, -3.0, 0.5) - 3.5).abs() < 1e-5, "turns the short way round");
+        // From 3.0 to -3.0 the short way is +0.283 rad across the +-pi seam, not -6.
+        assert!((turn_towards(3.0, -3.0, 0.5) - (3.0 + std::f32::consts::TAU - 6.0)).abs() < 1e-4, "turns the short way round");
     }
 
     #[test]

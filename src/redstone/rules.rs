@@ -41,6 +41,25 @@ pub fn dust_arms(get: impl Fn(IVec3) -> BlockId, pos: IVec3) -> DustArms {
     arms
 }
 
+/// The directions dust effectively points in: its connections, extended to a straight line when
+/// it connects on only one side of an axis (so the end of a dust line powers the block it ends
+/// at). Dust without any connection is a dot and is not covered here.
+pub fn effective_arms(arms: &DustArms) -> [bool; 4] {
+    // Order: North, South, West, East.
+    let c = arms.map(|a| a.is_some());
+    let (ns, ew) = (c[0] || c[1], c[2] || c[3]);
+    let mut e = c;
+    if ns && !ew {
+        e[0] = true;
+        e[1] = true;
+    }
+    if ew && !ns {
+        e[2] = true;
+        e[3] = true;
+    }
+    e
+}
+
 /// Only dust-to-dust links carry power along the wire (levers etc. feed it from outside).
 pub fn dust_links(get: impl Fn(IVec3) -> BlockId, pos: IVec3) -> impl Iterator<Item = IVec3> {
     let arms = dust_arms(&get, pos);
@@ -91,6 +110,21 @@ mod tests {
         // North, South, West, East.
         assert_eq!(arms, [None, Some(0), None, Some(0)]);
         assert_eq!(dust_links(&w, IVec3::ZERO).count(), 1);
+    }
+
+    #[test]
+    fn a_dust_line_end_points_straight_on() {
+        let w = world(&[(IVec3::new(0, 0, 0), BlockId::dust(0)), (IVec3::new(-1, 0, 0), BlockId::dust(0))]);
+        let arms = dust_arms(&w, IVec3::ZERO);
+        assert_eq!(arms, [None, None, Some(0), None]);
+        assert_eq!(effective_arms(&arms), [false, false, true, true]);
+        // A corner keeps its two real arms only.
+        let corner = world(&[
+            (IVec3::new(0, 0, 0), BlockId::dust(0)),
+            (IVec3::new(-1, 0, 0), BlockId::dust(0)),
+            (IVec3::new(0, 0, 1), BlockId::dust(0)),
+        ]);
+        assert_eq!(effective_arms(&dust_arms(&corner, IVec3::ZERO)), [false, true, true, false]);
     }
 
     #[test]

@@ -8,7 +8,7 @@
 
 use super::mesher::{MeshBuffers, PaddedVolume};
 use crate::physics::fluids::fluid_height;
-use crate::redstone::rules::dust_arms;
+use crate::redstone::rules::{dust_arms, effective_arms};
 use crate::world::block::{BlockId, framed_box, Facing, Kind, tile};
 use crate::world::chunk::{CHUNK_H, CHUNK_W};
 use bevy::math::{IVec3, Vec3};
@@ -222,17 +222,19 @@ fn mesh_model(vol: &PaddedVolume, [x, y, z]: [i32; 3], b: BlockId, out: &mut Mes
             let brightness = if power > 0 { 0.45 + 0.55 * power as f32 / 15.0 } else { 0.8 };
             let arms = dust_arms(|p: IVec3| vol.get(p.x, p.y, p.z), IVec3::new(x, y, z));
             let any = arms.iter().any(Option::is_some);
+            let eff = effective_arms(&arms);
             let (c0, c1) = (6.0 * PX, 10.0 * PX);
             let flat = |lo: (f32, f32), hi: (f32, f32)| {
                 (Vec3::new(lo.0, 0.0, lo.1), Vec3::new(hi.0, PX * 0.5, hi.1))
             };
             let mut boxes = vec![flat((c0, c0), (c1, c1))];
-            for (f, arm) in Facing::HORIZONTAL.into_iter().zip(arms) {
-                // A lone dust is drawn as a small cross; connected arms reach the block edge.
-                let (far, near) = match (arm, any) {
-                    (Some(_), _) => (1.0, 0.0),
-                    (None, false) => (13.0 * PX, 3.0 * PX),
-                    (None, true) => continue,
+            for (i, (f, arm)) in Facing::HORIZONTAL.into_iter().zip(arms).enumerate() {
+                // A lone dust is drawn as a small cross; connected arms (and the straight
+                // continuation of a line end) reach the block edge.
+                let (far, near) = match (arm, eff[i], any) {
+                    (Some(_), _, _) | (None, true, _) => (1.0, 0.0),
+                    (None, false, false) => (13.0 * PX, 3.0 * PX),
+                    (None, false, true) => continue,
                 };
                 boxes.push(match f {
                     Facing::North => flat((c0, near), (c1, c0)),
@@ -328,15 +330,24 @@ mod tests {
     }
 
     #[test]
-    fn a_water_source_in_air_has_five_faces_and_a_two_sided_top() {
+    fn an_isolated_source_slopes_down_at_its_corners_but_a_pool_is_level() {
         let mut c = Chunk::empty();
         c.set(5, 50, 5, BlockId::WATER);
         let (o, w) = mesh(&c);
         assert!(o.is_empty());
         // Top (+ underside of the surface), bottom and four sides.
         assert_eq!(w.quad_count(), 7);
-        let top = w.positions.iter().map(|p| p[1]).fold(0.0f32, f32::max);
-        assert!((top - (50.0 + 8.0 / 9.0)).abs() < 1e-4, "source surface height {top}");
+
+        let mut pool = Chunk::empty();
+        for x in 4..=6 {
+            for z in 4..=6 {
+                pool.set(x, 50, z, BlockId::WATER);
+            }
+        }
+        let (_, w) = mesh(&pool);
+        // The corner in the middle of the pool is surrounded by sources: full source height.
+        let centre = w.positions.iter().filter(|p| p[0] == 5.0 && p[2] == 5.0).map(|p| p[1]).fold(0.0f32, f32::max);
+        assert!((centre - (50.0 + 8.0 / 9.0)).abs() < 1e-4, "pool surface height {centre}");
     }
 
     #[test]
@@ -361,16 +372,22 @@ mod tests {
     }
 
     #[test]
-    fn fluid_surface_slopes_between_a_source_and_a_flow() {
+    fn the_surface_drops_along_a_flow() {
+        // A corridor: sources at x = 4, 5, then flowing water of growing distance.
         let mut c = Chunk::empty();
+        for x in 3..=10 {
+            c.set(x, 50, 4, BlockId::STONE);
+            c.set(x, 50, 6, BlockId::STONE);
+        }
+        c.set(4, 50, 5, BlockId::WATER);
         c.set(5, 50, 5, BlockId::WATER);
-        c.set(6, 50, 5, BlockId::water(3));
+        for (x, level) in [(6, 2), (7, 4), (8, 6)] {
+            c.set(x, 50, 5, BlockId::water(level));
+        }
         let (_, w) = mesh(&c);
-        // The corner shared by both cells is lower than the source's far corner.
-        let ys: Vec<f32> = w.positions.iter().filter(|p| p[0] == 6.0 && p[1] > 50.0 && p[2] == 5.0).map(|p| p[1]).collect();
-        let far: Vec<f32> = w.positions.iter().filter(|p| p[0] == 5.0 && p[1] > 50.0 && p[2] == 5.0).map(|p| p[1]).collect();
-        assert!(!ys.is_empty() && !far.is_empty());
-        assert!(ys[0] < far[0], "shared corner {} should be lower than the source corner {}", ys[0], far[0]);
+        let height_at = |x: f32| w.positions.iter().filter(|p| p[0] == x && p[2] == 5.0).map(|p| p[1]).fold(0.0f32, f32::max);
+        let (h6, h7, h8, h9) = (height_at(6.0), height_at(7.0), height_at(8.0), height_at(9.0));
+        assert!(h6 > h7 && h7 > h8 && h8 > h9, "{h6} {h7} {h8} {h9}");
     }
 
     #[test]

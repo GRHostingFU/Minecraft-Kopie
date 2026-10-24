@@ -18,8 +18,9 @@ const SKY_SEARCH: i32 = 96;
 /// Is there open sky above `cell` (nothing opaque in the column above it)?
 pub fn sky_exposed<W: BlockQuery>(w: &W, cell: IVec3) -> bool {
     (1..=SKY_SEARCH).all(|dy| {
-        // Unloaded space above counts as open: the column is only a few chunks high.
-        w.block(cell + IVec3::new(0, dy, 0)).is_none_or(|b| !b.is_opaque())
+        // Unloaded space above counts as open: the column is only a few chunks high. Sunlight
+        // shines through leaves.
+        w.block(cell + IVec3::new(0, dy, 0)).is_none_or(|b| !b.is_opaque() || b == BlockId::LEAVES)
     })
 }
 
@@ -74,6 +75,16 @@ mod tests {
         assert!(!is_dark(&w, cell, 0.5));
         assert!(is_dark(&w, cell, 0.1));
         assert!(is_dark(&w, cell, 0.0));
+    }
+
+    #[test]
+    fn tree_canopies_do_not_make_the_ground_dark() {
+        let mut w = Map::flat();
+        w.put(IVec3::new(0, 6, 0), BlockId::LEAVES);
+        assert!(sky_exposed(&w, IVec3::new(0, 2, 0)));
+        assert!(!is_dark(&w, IVec3::new(0, 1, 0), 1.0));
+        w.put(IVec3::new(0, 7, 0), BlockId::PLANKS);
+        assert!(!sky_exposed(&w, IVec3::new(0, 2, 0)), "a real roof does");
     }
 
     #[test]

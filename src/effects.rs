@@ -96,7 +96,7 @@ impl Scatter {
         Self(seed | 1)
     }
 
-    pub fn next(&mut self) -> f32 {
+    pub fn unit(&mut self) -> f32 {
         self.0 = self.0.wrapping_mul(1664525).wrapping_add(1013904223);
         (self.0 >> 8) as f32 / (1u32 << 24) as f32
     }
@@ -117,10 +117,10 @@ pub fn spawn_debris(
         (block.x as u32).wrapping_mul(73856093) ^ (block.y as u32).wrapping_mul(19349663) ^ (block.z as u32).wrapping_mul(83492791),
     );
     for _ in 0..10 {
-        let offset = Vec3::new(s.next(), s.next(), s.next());
-        let vel = Vec3::new(s.next() - 0.5, s.next() * 0.8 + 0.2, s.next() - 0.5) * 4.0;
+        let offset = Vec3::new(s.unit(), s.unit(), s.unit());
+        let vel = Vec3::new(s.unit() - 0.5, s.unit() * 0.8 + 0.2, s.unit() - 0.5) * 4.0;
         commands.spawn((
-            Particle { vel, life: 0.6 + s.next() * 0.4, gravity: 18.0, size: 1.0 },
+            Particle { vel, life: 0.6 + s.unit() * 0.4, gravity: 18.0, size: 1.0 },
             Mesh3d(mesh.clone()),
             MeshMaterial3d(material.clone()),
             Transform::from_translation(block.as_vec3() + offset),
@@ -148,9 +148,9 @@ fn spawn_bursts(
                 return;
             }
             alive += 1;
-            let dir = Vec3::new(s.next() - 0.5, s.next() - 0.3, s.next() - 0.5).normalize_or_zero();
+            let dir = Vec3::new(s.unit() - 0.5, s.unit() - 0.3, s.unit() - 0.5).normalize_or_zero();
             commands.spawn((
-                Particle { vel: dir * b.speed * (0.4 + s.next() * 0.6), life: b.life * (0.6 + s.next() * 0.4), gravity: 6.0, size: 0.8 + s.next() * 1.4 },
+                Particle { vel: dir * b.speed * (0.4 + s.unit() * 0.6), life: b.life * (0.6 + s.unit() * 0.4), gravity: 6.0, size: 0.8 + s.unit() * 1.4 },
                 Mesh3d(mesh.clone()),
                 MeshMaterial3d(material.clone()),
                 Transform::from_translation(b.center + dir * 0.2),

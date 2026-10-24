@@ -41,12 +41,15 @@ enum Action {
     ButtonRelease,
 }
 
+/// Due tick, insertion order (for stable ordering), cell and what to do there.
+type QueueEntry = (u64, u64, [i32; 3], Action);
+
 #[derive(Default)]
 pub struct RedstoneSim {
     tick: u64,
     seq: u64,
     dirty: HashSet<IVec3>,
-    queue: BinaryHeap<Reverse<(u64, u64, [i32; 3], Action)>>,
+    queue: BinaryHeap<Reverse<QueueEntry>>,
     scheduled: HashSet<(IVec3, Action)>,
     /// Pressed plates and how many ticks in a row nobody stood on them.
     plates: HashMap<IVec3, u32>,
@@ -436,26 +439,34 @@ mod tests {
     #[test]
     fn two_inverters_in_a_row_delay_the_signal_by_two_ticks() {
         let (mut w, mut sim) = (Map::flat(), RedstoneSim::default());
-        // lever -> block A -> torch1 (on A's far side, lit) ... torch1 powers dust -> block B -> torch2.
+        // lever -> block A -> torch1 (hangs on A, lit) -> dust -> block B -> torch2 (hangs on B).
         w.put(p(0, 1, 0), BlockId::lever(Facing::East, false));
         w.put(p(1, 1, 0), BlockId::STONE);
         w.put(p(2, 1, 0), BlockId::torch(Facing::West, true));
-        w.put(p(3, 1, 0), BlockId::STONE);
-        w.put(p(4, 1, 0), BlockId::torch(Facing::West, false));
-        sim.notify(p(1, 1, 0));
-        sim.notify(p(3, 1, 0));
-        sim.run(&mut w, 4);
-        // torch1 lit powers block B (x=3) weakly, so torch2 (hanging on B) is unlit.
-        assert_eq!(w.at(p(4, 1, 0)), BlockId::torch(Facing::West, false));
-        flip_lever(&mut w, &mut sim, p(0, 1, 0));
-        let mut history = Vec::new();
-        for _ in 0..5 {
-            sim.run(&mut w, 1);
-            history.push((w.at(p(2, 1, 0)), w.at(p(4, 1, 0))));
+        w.put(p(3, 1, 0), BlockId::dust(0));
+        w.put(p(4, 1, 0), BlockId::STONE);
+        w.put(p(5, 1, 0), BlockId::torch(Facing::West, true));
+        for x in 0..=5 {
+            sim.notify(p(x, 1, 0));
         }
-        let off1 = BlockId::torch(Facing::West, false);
-        let on2 = BlockId::torch(Facing::West, true);
-        assert!(history.iter().position(|h| h.0 == off1).unwrap() < history.iter().position(|h| h.1 == on2).unwrap());
+        sim.run(&mut w, 6);
+        let off = |w: &Map, at| BlockId::torch(Facing::West, false) == w.at(at);
+        assert_eq!(w.at(p(3, 1, 0)), BlockId::dust(15), "torch1 powers the dust");
+        assert!(off(&w, p(5, 1, 0)), "dust pointing into block B turns torch2 off");
+        flip_lever(&mut w, &mut sim, p(0, 1, 0));
+        let mut first_off = None;
+        let mut then_on = None;
+        for tick in 1..=8 {
+            sim.run(&mut w, 1);
+            if first_off.is_none() && off(&w, p(2, 1, 0)) {
+                first_off = Some(tick);
+            }
+            if then_on.is_none() && !off(&w, p(5, 1, 0)) {
+                then_on = Some(tick);
+            }
+        }
+        let (a, b) = (first_off.expect("torch1 turns off"), then_on.expect("torch2 turns on"));
+        assert!(b > a, "the second inverter reacts later: {a} then {b}");
     }
 
     #[test]
@@ -571,6 +582,7 @@ mod tests {
         w.put(p(1, 1, 0), BlockId::dust(0));
         w.put(p(2, 1, 0), BlockId::STONE);
         w.put(p(2, 2, 0), BlockId::dust(0));
+        w.put(p(3, 1, 0), BlockId::STONE);
         w.put(p(3, 2, 0), BlockId::dust(0));
         sim.notify(p(0, 1, 0));
         sim.run(&mut w, 2);
