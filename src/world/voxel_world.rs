@@ -1,7 +1,7 @@
 use super::block::BlockId;
 use super::chunk::{Chunk, ChunkPos, split_world_pos};
 use bevy::math::{IVec2, IVec3};
-use bevy::prelude::Resource;
+use bevy::prelude::{Message, MessageWriter, ResMut, Resource};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -11,12 +11,59 @@ pub trait BlockQuery {
     fn block(&self, pos: IVec3) -> Option<BlockId>;
 }
 
+/// Read and write access to blocks for the simulations (fluids, redstone, explosions). The
+/// game uses [`VoxelWorld`]; tests use a plain map.
+pub trait BlockAccess: BlockQuery {
+    /// Replaces the block at `pos`. Returns `false` if that position is not loaded.
+    fn set(&mut self, pos: IVec3, id: BlockId) -> bool;
+}
+
+/// One edit of one block, recorded by [`VoxelWorld::set_block`] for the simulations
+/// (fluids, redstone, mobs) that react to changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockChange {
+    pub pos: IVec3,
+    pub old: BlockId,
+    pub new: BlockId,
+}
+
+/// Broadcast form of [`BlockChange`], delivered one frame after the edit.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct BlockChanged(pub BlockChange);
+
+/// A chunk was inserted into the world (generated or loaded from disk).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ChunkLoaded(pub ChunkPos);
+
+/// Turns the world's change log into messages for the simulations.
+pub fn dispatch_world_events(
+    mut world: ResMut<VoxelWorld>,
+    mut changes: MessageWriter<BlockChanged>,
+    mut loaded: MessageWriter<ChunkLoaded>,
+) {
+    // Avoid marking the resource changed on idle frames.
+    if world.changes.is_empty() && world.new_chunks.is_empty() {
+        return;
+    }
+    for c in world.take_changes() {
+        changes.write(BlockChanged(c));
+    }
+    for p in world.take_new_chunks() {
+        loaded.write(ChunkLoaded(p));
+    }
+}
+
+/// Upper bound for the change log if nobody drains it (headless tests).
+const MAX_LOGGED_CHANGES: usize = 1 << 20;
+
 /// All loaded chunks plus the set of chunks whose mesh is out of date.
 #[derive(Resource, Default)]
 pub struct VoxelWorld {
     /// Shared so mesher threads can snapshot neighbours without copying; edits are copy-on-write.
     chunks: HashMap<ChunkPos, Arc<Chunk>>,
     needs_mesh: HashSet<ChunkPos>,
+    changes: Vec<BlockChange>,
+    new_chunks: Vec<ChunkPos>,
 }
 
 impl VoxelWorld {
@@ -44,6 +91,7 @@ impl VoxelWorld {
     /// neighbour must be re-meshed because border faces and AO depend on it.
     pub fn insert_chunk(&mut self, pos: ChunkPos, chunk: Chunk) {
         self.chunks.insert(pos, Arc::new(chunk));
+        self.new_chunks.push(pos);
         self.mark_with_neighbours(pos);
     }
 
@@ -71,9 +119,14 @@ impl VoxelWorld {
         let Some(chunk) = self.chunks.get_mut(&cp) else {
             return false;
         };
-        if chunk.get(x, y, z) == id {
+        let old = chunk.get(x, y, z);
+        if old == id {
             return true;
         }
+        if self.changes.len() < MAX_LOGGED_CHANGES {
+            self.changes.push(BlockChange { pos, old, new: id });
+        }
+        let chunk = self.chunks.get_mut(&cp).expect("chunk checked above");
         let chunk = Arc::make_mut(chunk);
         chunk.set(x, y, z, id);
         chunk.modified = true;
@@ -113,6 +166,16 @@ impl VoxelWorld {
         self.block(pos).unwrap_or(BlockId::AIR)
     }
 
+    /// Edits since the last call, oldest first.
+    pub fn take_changes(&mut self) -> Vec<BlockChange> {
+        std::mem::take(&mut self.changes)
+    }
+
+    /// Chunks inserted since the last call (simulations scan them for work to schedule).
+    pub fn take_new_chunks(&mut self) -> Vec<ChunkPos> {
+        std::mem::take(&mut self.new_chunks)
+    }
+
     pub fn take_needs_mesh(&mut self) -> Vec<ChunkPos> {
         self.needs_mesh.drain().collect()
     }
@@ -132,6 +195,12 @@ impl VoxelWorld {
         let (cp, [lx, _, lz]) = split_world_pos(IVec3::new(x, 0, z));
         let chunk = self.chunks.get(&cp)?;
         (0..super::chunk::CHUNK_H).rev().find(|&y| chunk.get(lx, y, lz).is_solid()).map(|y| y as i32)
+    }
+}
+
+impl BlockAccess for VoxelWorld {
+    fn set(&mut self, pos: IVec3, id: BlockId) -> bool {
+        self.set_block(pos, id)
     }
 }
 

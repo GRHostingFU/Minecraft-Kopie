@@ -14,6 +14,12 @@ path = "src/lib.rs"
 name = "minecraft_kopie"
 path = "src/main.rs"
 
+[features]
+default = ["audio"]
+# Sound playback through Bevy's audio backend (needs the ALSA development files on Linux).
+# The synthesiser itself always compiles; without this feature the game is silent.
+audio = ["bevy/bevy_audio", "bevy/wav"]
+
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["3d", "ui"] }
 noise = { version = "0.9", default-features = false }

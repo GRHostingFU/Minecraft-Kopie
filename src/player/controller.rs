@@ -4,7 +4,8 @@
 //! `physics::move_body`.
 
 use super::LoadedLevel;
-use crate::physics::collision::{Body, in_water, move_body, standing_on};
+use crate::physics::collision::{Body, free_spot_above, is_stuck, move_body, standing_on};
+use crate::physics::fluids::{FluidContact, body_contact, surface_in_cell};
 use crate::settings::GameSettings;
 use crate::world::block::BlockId;
 use crate::world::generation::{Biome, SEA_LEVEL, TerrainGenerator};
@@ -21,6 +22,11 @@ pub const WALK_SPEED: f32 = 4.3;
 pub const SPRINT_SPEED: f32 = 5.6;
 pub const SNEAK_SPEED: f32 = 1.3;
 const FLY_SPEED: f32 = 10.9;
+/// Speed at which flowing water carries a swimmer.
+const CURRENT_SPEED: f32 = 1.7;
+/// Sink rate with no input and swim-up speed while jump is held.
+const SWIM_SINK: f32 = 1.5;
+const SWIM_RISE: f32 = 3.2;
 const GROUND_ACCEL: f32 = 60.0;
 const GROUND_FRICTION: f32 = 45.0;
 const AIR_ACCEL: f32 = 14.0;
@@ -44,6 +50,7 @@ pub struct Player {
     pub pitch: f32,
     pub on_ground: bool,
     pub in_water: bool,
+    pub in_lava: bool,
     pub flying: bool,
     pub sprinting: bool,
     pub sneaking: bool,
@@ -149,6 +156,7 @@ fn spawn_player(
                 pitch,
                 on_ground: false,
                 in_water: false,
+                in_lava: false,
                 flying,
                 sprinting: false,
                 sneaking: false,
@@ -158,6 +166,7 @@ fn spawn_player(
                 needs_spawn_search: fresh,
             },
             ChunkAnchor,
+            crate::redstone::PressesPlates,
             Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw)),
             Visibility::default(),
         ))
@@ -287,7 +296,9 @@ pub struct MoveInput {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct StepResult {
     pub on_ground: bool,
+    /// Moving through water or lava.
     pub swimming: bool,
+    pub in_lava: bool,
     /// Ran into a wall on a horizontal axis.
     pub hit_horizontal: bool,
     /// The sneak edge guard held the player back this step.
@@ -331,7 +342,10 @@ pub fn step_player<W: BlockQuery>(
     let wish2 = Vec2::new(wish.x, wish.z);
 
     let body = Body::player(*pos);
-    let swimming = !flying && in_water(world, &body);
+    let contact =
+        if flying { FluidContact::default() } else { body_contact(world, *pos, body.half_width, body.height) };
+    let swimming = contact.any();
+    let in_lava = contact.lava;
     let on_ground_probe = standing_on(world, &body, 0.02);
     let sneaking = input.sneak && !flying && !swimming;
 
@@ -349,20 +363,31 @@ pub fn step_player<W: BlockQuery>(
         } else {
             WALK_SPEED
         };
-        let speed = base * if swimming { 0.55 } else { 1.0 };
-        let target = wish2 * speed;
-        if on_ground_probe {
+        let speed = base
+            * if in_lava {
+                0.3
+            } else if swimming {
+                0.55
+            } else {
+                1.0
+            };
+        let mut target = wish2 * speed;
+        if swimming {
+            // Currents carry the swimmer along; lava is thick and barely moves.
+            let push = contact.flow * if in_lava { 0.6 } else { CURRENT_SPEED };
+            target += Vec2::new(push.x, push.z);
+        }
+        if on_ground_probe && !swimming {
             let accel = if wish2 == Vec2::ZERO { GROUND_FRICTION } else { GROUND_ACCEL };
             h = approach(h, target, accel * dt);
         } else {
             h = approach(h, target, AIR_ACCEL * dt);
         }
         if swimming {
-            vel.y -= 6.0 * dt;
-            vel.y = vel.y.clamp(-3.0, 3.0);
-            if input.jump {
-                vel.y = (vel.y + 18.0 * dt).min(3.2);
-            }
+            // Buoyancy: sink slowly, kick upwards while jump is held; falling water drags down.
+            let (sink, rise) = if in_lava { (0.9, 1.7) } else { (SWIM_SINK, SWIM_RISE) };
+            let want = if input.jump { rise } else { -sink } + contact.flow.y * 3.0;
+            vel.y += (want - vel.y).clamp(-20.0 * dt, 20.0 * dt);
         } else {
             vel.y = (vel.y - GRAVITY * dt).max(-TERMINAL_VELOCITY);
             if input.jump && on_ground_probe {
@@ -398,7 +423,16 @@ pub fn step_player<W: BlockQuery>(
     if res.hit_y {
         vel.y = 0.0;
     }
-    StepResult { on_ground: res.on_ground, swimming, hit_horizontal: res.hit_x || res.hit_z, edge_guarded }
+    // Pull yourself out over the edge of the pool: pushing against a wall near the surface while
+    // holding jump gives a hop that clears one block.
+    if swimming && input.jump && (res.hit_x || res.hit_z) {
+        let eyes = *pos + Vec3::Y * EYE_HEIGHT;
+        let eyes_dry = surface_in_cell(world, eyes.floor().as_ivec3()).is_none();
+        if eyes_dry {
+            vel.y = vel.y.max(if in_lava { 4.0 } else { 6.2 });
+        }
+    }
+    StepResult { on_ground: res.on_ground, swimming, in_lava, hit_horizontal: res.hit_x || res.hit_z, edge_guarded }
 }
 
 fn player_physics(
@@ -455,11 +489,20 @@ fn player_physics(
         pos.y = 200.0;
         vel = Vec3::ZERO;
     }
+    // Something solid appeared around the player (piston, obsidian): lift them out of it.
+    let body = Body::player(pos);
+    if is_stuck(&*world, &body)
+        && let Some(free) = free_spot_above(&*world, &body, 4.0)
+    {
+        pos = free;
+        vel.y = vel.y.max(0.0);
+    }
     t.translation = pos;
     p.vel = vel;
     sprint.blocked = sprinting && last.hit_horizontal;
     p.on_ground = last.on_ground;
-    p.in_water = last.swimming;
+    p.in_water = last.swimming && !last.in_lava;
+    p.in_lava = last.in_lava;
     p.sprinting = (sprinting || (p.flying && input.sprint)) && Vec2::new(vel.x, vel.z).length() > 0.5;
     p.sneaking = input.sneak && !last.swimming;
     if p.flying && last.on_ground {

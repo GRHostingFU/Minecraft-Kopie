@@ -3,8 +3,12 @@
 use super::screens::Screen;
 use super::widgets::{SlotView, TEXT_DIM, spawn_slot, text_font};
 use crate::inventory::{HOTBAR_SLOTS, Inventory};
+use crate::mobs::Mob;
+use crate::physics::fluids::FluidSimulation;
 use crate::player::controller::Player;
+use crate::player::health::{Health, MAX_HEALTH, armor_points};
 use crate::player::interaction::Target;
+use crate::redstone::RedstoneSimulation;
 use crate::rendering::AtlasHandle;
 use crate::rendering::chunk_mesh::MeshState;
 use crate::rendering::sky::TimeOfDay;
@@ -42,12 +46,26 @@ impl Plugin for HudPlugin {
             .add_systems(PostStartup, spawn_hud)
             .add_systems(
                 Update,
-                (update_hotbar_selection, update_held_name, toggle_hud_visibility, toggle_debug, update_debug_text),
+                (
+                    update_hotbar_selection,
+                    update_held_name,
+                    toggle_hud_visibility,
+                    toggle_debug,
+                    update_debug_text,
+                    update_hearts,
+                ),
             );
     }
 }
 
 const SLOT_SIZE: f32 = 48.0;
+const HEART: f32 = 18.0;
+
+#[derive(Component)]
+struct HeartFill(usize);
+
+#[derive(Component)]
+struct ArmorText;
 
 fn spawn_hud(mut commands: Commands, atlas: Res<AtlasHandle>) {
     commands
@@ -89,10 +107,56 @@ fn spawn_hud(mut commands: Commands, atlas: Res<AtlasHandle>) {
                 }
             });
 
+            // Hearts and armor sit above the left end of the hotbar.
+            let hotbar_width = HOTBAR_SLOTS as f32 * SLOT_SIZE + (HOTBAR_SLOTS as f32 - 1.0) * 4.0;
+            root.spawn(Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(14.0 + SLOT_SIZE + 8.0),
+                width: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            })
+            .with_children(|wrap| {
+                wrap.spawn(Node {
+                    width: Val::Px(hotbar_width),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(3.0),
+                    ..default()
+                })
+                .with_children(|col| {
+                    col.spawn((ArmorText, Text::new(""), text_font(13.0), TextColor(Color::srgb(0.75, 0.82, 0.95))));
+                    col.spawn(Node { column_gap: Val::Px(2.0), ..default() }).with_children(|row| {
+                        for i in 0..10 {
+                            row.spawn((
+                                Node {
+                                    width: Val::Px(HEART),
+                                    height: Val::Px(HEART),
+                                    border_radius: BorderRadius::all(Val::Px(4.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(Color::srgba(0.12, 0.02, 0.02, 0.85)),
+                            ))
+                            .with_children(|h| {
+                                h.spawn((
+                                    HeartFill(i),
+                                    Node {
+                                        width: Val::Percent(100.0),
+                                        height: Val::Percent(100.0),
+                                        border_radius: BorderRadius::all(Val::Px(4.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::srgb(0.85, 0.1, 0.12)),
+                                ));
+                            });
+                        }
+                    });
+                });
+            });
+
             // The item name floats above the hotbar; the wrapper centres it.
             root.spawn(Node {
                 position_type: PositionType::Absolute,
-                bottom: Val::Px(14.0 + SLOT_SIZE + 12.0),
+                bottom: Val::Px(14.0 + SLOT_SIZE + 12.0 + HEART + 22.0),
                 width: Val::Percent(100.0),
                 justify_content: JustifyContent::Center,
                 ..default()
@@ -117,11 +181,34 @@ fn spawn_hud(mut commands: Commands, atlas: Res<AtlasHandle>) {
         Node { position_type: PositionType::Absolute, left: Val::Px(8.0), top: Val::Px(6.0), ..default() },
     ));
     commands.spawn((
-        Text::new("WASD move  Space jump  Shift sneak  Ctrl/2xW sprint  E inventory  Esc menu  F fly  F3 debug"),
+        Text::new("WASD move  Space jump/swim  Shift sneak  Ctrl/2xW sprint  LMB break/hit  RMB place/use  E inventory  F fly  F6/F7 spawn creeper/skeleton  F3 debug"),
         text_font(13.0),
         TextColor(TEXT_DIM),
         Node { position_type: PositionType::Absolute, right: Val::Px(8.0), top: Val::Px(6.0), ..default() },
     ));
+}
+
+/// Fills the hearts according to the player's health (two points per heart).
+fn update_hearts(
+    health: Res<Health>,
+    inventory: Res<Inventory>,
+    mut fills: Query<(&HeartFill, &mut Node)>,
+    mut armor: Query<&mut Text, With<ArmorText>>,
+) {
+    for (HeartFill(i), mut node) in &mut fills {
+        let fill = ((health.current - *i as f32 * 2.0) / 2.0).clamp(0.0, 1.0);
+        let want = Val::Percent(fill * 100.0);
+        if node.width != want {
+            node.width = want;
+        }
+    }
+    if let Ok(mut text) = armor.single_mut() {
+        let points = armor_points(&inventory);
+        let want = if points > 0.0 { format!("Armor {points:.0}") } else { String::new() };
+        if text.0 != want {
+            text.0 = want;
+        }
+    }
 }
 
 /// Highlights the selected hotbar slot. Only HUD slots are touched; the inventory screen's slots
@@ -187,6 +274,10 @@ fn update_debug_text(
     target: Res<Target>,
     inventory: Res<Inventory>,
     settings: Res<WorldSettings>,
+    fluids: Res<FluidSimulation>,
+    redstone: Res<RedstoneSimulation>,
+    mobs: Query<&Mob>,
+    health: Res<Health>,
     mut text: Query<&mut Text, With<DebugText>>,
 ) {
     let Ok(mut text) = text.single_mut() else { return };
@@ -202,6 +293,8 @@ fn update_debug_text(
     let looking = target.0.map(|h| world.block_at(h.block).name()).unwrap_or("-");
     let state = if p.flying {
         "flying "
+    } else if p.in_lava {
+        "in lava "
     } else if p.in_water {
         "swimming "
     } else if p.sneaking {
@@ -212,7 +305,7 @@ fn update_debug_text(
         ""
     };
     text.0 = format!(
-        "{:.0} fps   render distance {}\nXYZ {:.1} {:.1} {:.1}\nchunks {} loaded, {} meshed ({} quads), {} queued, {} meshing\ntime {:02}:{:02}  {}{}\nlooking at {}   holding {}",
+        "{:.0} fps   render distance {}\nXYZ {:.1} {:.1} {:.1}\nchunks {} loaded, {} meshed ({} quads), {} queued, {} meshing\ntime {:02}:{:02}  {}{}\nhealth {:.0}/{}   mobs {}   fluid ticks pending {}   redstone tick {}\nlooking at {}   holding {}",
         fps.0,
         settings.render_distance,
         t.translation.x,
@@ -227,6 +320,11 @@ fn update_debug_text(
         ((hours.fract()) * 60.0) as u32,
         state,
         if p.active { "" } else { "(generating terrain...)" },
+        health.current,
+        MAX_HEALTH,
+        mobs.iter().count(),
+        fluids.0.pending(),
+        redstone.0.ticks(),
         looking,
         inventory.held_item().map_or("nothing", |i| i.name()),
     );

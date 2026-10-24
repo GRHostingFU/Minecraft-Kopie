@@ -1,6 +1,7 @@
 //! Voxel ray traversal (Amanatides & Woo DDA).
 
 use crate::world::BlockQuery;
+use crate::world::block::select_box;
 use bevy::math::{IVec3, Vec3};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -42,7 +43,18 @@ pub fn raycast<W: BlockQuery>(world: &W, origin: Vec3, dir: Vec3, max_dist: f32)
     loop {
         match world.block(cell) {
             None => return None,
-            Some(b) if b.is_targetable() => return Some(RayHit { block: cell, normal, distance: dist }),
+            Some(b) if b.is_targetable() && !b.is_model() => {
+                return Some(RayHit { block: cell, normal, distance: dist });
+            }
+            // Thin parts (levers, dust, ...) are only hit where their box really is.
+            Some(b) if b.is_model() => {
+                let (lo, hi) = select_box(b);
+                if let Some((t, n)) = ray_box(origin, dir, cell.as_vec3() + lo, cell.as_vec3() + hi)
+                    && t <= max_dist
+                {
+                    return Some(RayHit { block: cell, normal: n, distance: t });
+                }
+            }
             _ => {}
         }
         // Advance along the axis whose boundary is nearest.
@@ -62,6 +74,40 @@ pub fn raycast<W: BlockQuery>(world: &W, origin: Vec3, dir: Vec3, max_dist: f32)
         normal = IVec3::ZERO;
         normal[axis] = -step[axis];
     }
+}
+
+/// Ray against an axis-aligned box: entry distance and the outward normal of the face hit
+/// (`ZERO` if the ray starts inside the box).
+pub fn ray_box(origin: Vec3, dir: Vec3, lo: Vec3, hi: Vec3) -> Option<(f32, IVec3)> {
+    let (mut t_near, mut t_far) = (f32::NEG_INFINITY, f32::INFINITY);
+    let mut normal = IVec3::ZERO;
+    for a in 0..3 {
+        if dir[a].abs() < 1e-9 {
+            if origin[a] < lo[a] || origin[a] > hi[a] {
+                return None;
+            }
+            continue;
+        }
+        let (mut t0, mut t1) = ((lo[a] - origin[a]) / dir[a], (hi[a] - origin[a]) / dir[a]);
+        let mut face = -1;
+        if t0 > t1 {
+            std::mem::swap(&mut t0, &mut t1);
+            face = 1;
+        }
+        if t0 > t_near {
+            t_near = t0;
+            normal = IVec3::ZERO;
+            normal[a] = face;
+        }
+        t_far = t_far.min(t1);
+        if t_near > t_far {
+            return None;
+        }
+    }
+    if t_far < 0.0 {
+        return None;
+    }
+    if t_near < 0.0 { Some((0.0, IVec3::ZERO)) } else { Some((t_near, normal)) }
 }
 
 #[cfg(test)]
@@ -145,5 +191,32 @@ mod tests {
             }
             assert_eq!(dda, brute, "angle {i}");
         }
+    }
+
+    #[test]
+    fn thin_parts_are_only_hit_where_their_box_is() {
+        use crate::world::block::Facing;
+        let mut w = world(&[]);
+        w.0.insert(IVec3::new(0, 0, 3), BlockId::STONE_PLATE);
+        // Straight down onto the plate's footprint hits it from above.
+        let hit = raycast(&w, Vec3::new(0.5, 3.0, 3.5), Vec3::NEG_Y, 6.0).unwrap();
+        assert_eq!((hit.block, hit.normal), (IVec3::new(0, 0, 3), IVec3::Y));
+        // A shallow ray passing over the 1/16-high plate misses it.
+        assert!(raycast(&w, Vec3::new(0.5, 0.5, 0.5), Vec3::new(0.0, -0.02, 1.0), 6.0).is_none());
+        // A lever on a wall can be clicked.
+        w.0.insert(IVec3::new(5, 0, 5), BlockId::lever(Facing::West, false));
+        let hit = raycast(&w, Vec3::new(8.0, 0.5, 5.5), Vec3::NEG_X, 6.0).unwrap();
+        assert_eq!(hit.block, IVec3::new(5, 0, 5));
+        assert_eq!(hit.normal, IVec3::X);
+    }
+
+    #[test]
+    fn ray_box_reports_entry_face() {
+        let (t, n) = ray_box(Vec3::new(-2.0, 0.5, 0.5), Vec3::X, Vec3::ZERO, Vec3::ONE).unwrap();
+        assert!((t - 2.0).abs() < 1e-5 && n == IVec3::NEG_X);
+        let (t, n) = ray_box(Vec3::new(0.5, 0.5, 0.5), Vec3::X, Vec3::ZERO, Vec3::ONE).unwrap();
+        assert_eq!((t, n), (0.0, IVec3::ZERO));
+        assert!(ray_box(Vec3::new(-2.0, 5.0, 0.5), Vec3::X, Vec3::ZERO, Vec3::ONE).is_none());
+        assert!(ray_box(Vec3::new(2.0, 0.5, 0.5), Vec3::X, Vec3::ZERO, Vec3::ONE).is_none());
     }
 }

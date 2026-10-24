@@ -1,4 +1,5 @@
 pub mod controller;
+pub mod health;
 pub mod interaction;
 pub mod viewmodel;
 
@@ -47,9 +48,13 @@ impl Plugin for PlayerPlugin {
         }
         debug_assert!(settings::clamp_render_distance(settings.render_distance) == settings.render_distance);
 
-        app.insert_resource(inventory)
-            .insert_resource(game_settings)
-            .insert_resource(LoadedLevel(level))
-            .add_plugins((controller::ControllerPlugin, interaction::InteractionPlugin, viewmodel::ViewModelPlugin));
+        app.insert_resource(inventory).insert_resource(game_settings).insert_resource(LoadedLevel(level)).add_plugins(
+            (
+                controller::ControllerPlugin,
+                health::HealthPlugin,
+                interaction::InteractionPlugin,
+                viewmodel::ViewModelPlugin,
+            ),
+        );
     }
 }

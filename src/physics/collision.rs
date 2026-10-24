@@ -138,19 +138,38 @@ pub fn standing_on<W: BlockQuery>(world: &W, body: &Body, dist: f32) -> bool {
     clip_axis(world, body, 1, -dist) > -dist + 1e-6
 }
 
-/// Does any part of the body overlap a water block?
+/// Does any part of the body overlap water?
 pub fn in_water<W: BlockQuery>(world: &W, body: &Body) -> bool {
+    super::fluids::body_contact(world, body.pos, body.half_width, body.height).water
+}
+
+/// Does any part of the body overlap solid geometry?
+pub fn is_stuck<W: BlockQuery>(world: &W, body: &Body) -> bool {
     let (lo, hi) = (body.min(), body.max());
-    for y in (lo.y.floor() as i32)..=((lo.y + body.height * 0.6).min(hi.y - SKIN).floor() as i32) {
+    for y in (lo.y.floor() as i32)..=((hi.y - SKIN).floor() as i32) {
         for z in (lo.z.floor() as i32)..=((hi.z - SKIN).floor() as i32) {
             for x in (lo.x.floor() as i32)..=((hi.x - SKIN).floor() as i32) {
-                if world.block(IVec3::new(x, y, z)) == Some(BlockId::WATER) {
+                if world.block(IVec3::new(x, y, z)).is_some_and(BlockId::is_solid) {
                     return true;
                 }
             }
         }
     }
     false
+}
+
+/// A position near `pos` (straight up, at most `max_up` blocks) where the body fits, if the body
+/// is currently embedded in a block (a piston or obsidian formed around it).
+pub fn free_spot_above<W: BlockQuery>(world: &W, body: &Body, max_up: f32) -> Option<Vec3> {
+    let mut dy = 0.0;
+    while dy <= max_up {
+        let b = Body { pos: body.pos + Vec3::new(0.0, dy, 0.0), ..*body };
+        if !is_stuck(world, &b) {
+            return Some(b.pos);
+        }
+        dy += 0.25;
+    }
+    None
 }
 
 #[cfg(test)]
@@ -250,5 +269,27 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod embed_tests {
+    use super::*;
+
+    struct Slab;
+    impl BlockQuery for Slab {
+        fn block(&self, p: IVec3) -> Option<BlockId> {
+            Some(if p.y <= 0 || (p.y <= 2 && p.x == 0 && p.z == 0) { BlockId::STONE } else { BlockId::AIR })
+        }
+    }
+
+    #[test]
+    fn an_embedded_body_is_lifted_out() {
+        let body = Body::player(Vec3::new(0.5, 1.0, 0.5));
+        assert!(is_stuck(&Slab, &body));
+        let out = free_spot_above(&Slab, &body, 4.0).unwrap();
+        assert!(out.y >= 3.0 && out.y < 3.3, "{out}");
+        assert!(!is_stuck(&Slab, &Body::player(out)));
+        assert!(free_spot_above(&Slab, &body, 1.0).is_none());
     }
 }

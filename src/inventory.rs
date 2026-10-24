@@ -31,10 +31,11 @@ impl Item {
         Item(block.0)
     }
 
-    /// The block this item places, if it is a placeable block.
+    /// The block this item places, if it is a placeable block. Items are the canonical block
+    /// ids (below 100); the placed state (orientation, ...) is chosen at placement time.
     pub fn as_block(self) -> Option<BlockId> {
         let b = BlockId(self.0);
-        (self.0 != 0 && self.0 < 100 && b.is_targetable() && b.name() != "Unknown").then_some(b)
+        (self.0 != 0 && self.0 < 100 && b.is_known()).then_some(b)
     }
 
     /// Which armor slot (0 = helmet .. 3 = boots) this item fits, if it is armor.
@@ -69,16 +70,10 @@ impl Item {
         }
     }
 
-    /// What breaking `block` yields (Minecraft rules: stone drops cobblestone, grass drops dirt).
+    /// What breaking `block` yields (Minecraft rules: stone drops cobblestone, grass drops dirt,
+    /// every state of a redstone part drops the part itself).
     pub fn drop_for(block: BlockId) -> Option<Item> {
-        if !block.is_breakable() {
-            return None;
-        }
-        Some(match block {
-            BlockId::STONE => Item::block(BlockId::COBBLE),
-            BlockId::GRASS => Item::block(BlockId::DIRT),
-            other => Item::block(other),
-        })
+        block.drop_block().map(Item::block)
     }
 }
 
@@ -137,6 +132,23 @@ impl Inventory {
         inv.slots[HOTBAR_SLOTS + 3] = Some(ItemStack::new(Item::IRON_BOOTS, 1));
         inv.slots[HOTBAR_SLOTS + 4] = Some(ItemStack::new(Item::block(BlockId::SNOW), 32));
         inv.slots[HOTBAR_SLOTS + 5] = Some(ItemStack::new(Item::block(BlockId::LEAVES), 32));
+        // Creative-style supplies for the fluid and redstone systems.
+        let extras = [
+            (BlockId::WATER, 4),
+            (BlockId::LAVA, 4),
+            (BlockId::OBSIDIAN, 16),
+            (BlockId::REDSTONE_DUST, MAX_STACK),
+            (BlockId::REDSTONE_TORCH, 16),
+            (BlockId::LEVER, 8),
+            (BlockId::STONE_BUTTON, 8),
+            (BlockId::STONE_PLATE, 8),
+            (BlockId::REDSTONE_LAMP, 8),
+            (BlockId::PISTON, 8),
+            (BlockId::STICKY_PISTON, 8),
+        ];
+        for (i, (b, n)) in extras.into_iter().enumerate() {
+            inv.slots[HOTBAR_SLOTS + 6 + i] = Some(ItemStack::new(Item::block(b), n));
+        }
         inv
     }
 

@@ -2,6 +2,7 @@ pub mod atlas;
 pub mod chunk_mesh;
 pub mod material;
 pub mod mesher;
+pub mod models;
 pub mod sky;
 
 use bevy::prelude::*;
