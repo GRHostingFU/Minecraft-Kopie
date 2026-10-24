@@ -12,7 +12,8 @@ pub struct Tab {
 }
 
 fn build() -> Vec<Tab> {
-    let tab = |name, icon, cat: Category| Tab { name, icon, items: Item::all().filter(|i| i.category() == cat).collect() };
+    let tab =
+        |name, icon, cat: Category| Tab { name, icon, items: Item::all().filter(|i| i.category() == cat).collect() };
     vec![
         tab("Building Blocks", Item::block(BlockId::BRICKS), Category::Building),
         tab("Natural Blocks", Item::block(BlockId::GRASS), Category::Natural),

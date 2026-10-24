@@ -18,10 +18,10 @@ impl Plugin for PlayerPlugin {
             .init_resource::<crate::inventory::Inventory>()
             .init_resource::<crate::settings::GameSettings>()
             .add_plugins((
-            controller::ControllerPlugin,
-            controls::ControlsPlugin,
-            interaction::InteractionPlugin,
-            viewmodel::ViewModelPlugin,
-        ));
+                controller::ControllerPlugin,
+                controls::ControlsPlugin,
+                interaction::InteractionPlugin,
+                viewmodel::ViewModelPlugin,
+            ));
     }
 }

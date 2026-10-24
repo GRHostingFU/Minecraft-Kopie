@@ -36,8 +36,17 @@ fn spawn_logo(parent: &mut ChildSpawnerCommands, text: &str, scale: f32, color: 
                 let off = depth * layer;
                 let c = color.to_srgba();
                 logo.spawn((
-                    PixelText::new(text).scale(scale).no_shadow().color(Color::srgb(c.red * shade, c.green * shade, c.blue * shade)),
-                    Node { position_type: PositionType::Absolute, left: Val::Px(depth * 2.0 - off), top: Val::Px(depth * 2.0 - off), ..default() },
+                    PixelText::new(text).scale(scale).no_shadow().color(Color::srgb(
+                        c.red * shade,
+                        c.green * shade,
+                        c.blue * shade,
+                    )),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(depth * 2.0 - off),
+                        top: Val::Px(depth * 2.0 - off),
+                        ..default()
+                    },
                 ));
             }
         });
@@ -53,20 +62,31 @@ impl Plugin for TitlePlugin {
 
 fn spawn_title(mut commands: Commands) {
     let page = spawn_page(&mut commands, Screen::Title, 0.18, 30);
-    let pick = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as usize) % SPLASHES.len();
+    let pick = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as usize)
+        % SPLASHES.len();
     commands.entity(page).with_children(|root| {
-        root.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, margin: UiRect::bottom(Val::Px(18.0)), ..default() })
-            .with_children(|logo| {
-                spawn_logo(logo, "MINECRAFT", 9.0, Color::srgb(0.80, 0.80, 0.84));
-                spawn_logo(logo, "KOPIE", 6.0, Color::srgb(0.95, 0.80, 0.30));
-                // The splash sits at the right corner of the logo, tilted.
-                logo.spawn((
-                    Splash { phase: 0.0 },
-                    PixelText::new(SPLASHES[pick]).scale(3.0).color(TEXT_GOLD),
-                    Node { position_type: PositionType::Absolute, right: Val::Px(-60.0), bottom: Val::Px(10.0), ..default() },
-                    UiTransform::from_rotation(Rot2::degrees(-16.0)),
-                ));
-            });
+        root.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            margin: UiRect::bottom(Val::Px(18.0)),
+            ..default()
+        })
+        .with_children(|logo| {
+            spawn_logo(logo, "MINECRAFT", 9.0, Color::srgb(0.80, 0.80, 0.84));
+            spawn_logo(logo, "KOPIE", 6.0, Color::srgb(0.95, 0.80, 0.30));
+            // The splash sits at the right corner of the logo, tilted.
+            logo.spawn((
+                Splash { phase: 0.0 },
+                PixelText::new(SPLASHES[pick]).scale(3.0).color(TEXT_GOLD),
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: Val::Px(-120.0),
+                    bottom: Val::Px(70.0),
+                    ..default()
+                },
+                UiTransform::from_rotation(Rot2::degrees(-16.0)),
+            ));
+        });
         spawn_button(root, Screen::Title, UiAction::Singleplayer, "Singleplayer", 420.0);
         spawn_button(root, Screen::Title, UiAction::OpenOptions, "Options...", 420.0);
         spawn_button(root, Screen::Title, UiAction::QuitGame, "Quit Game", 420.0);
@@ -99,7 +119,7 @@ fn title_clicks(
     for UiClick(action) in clicks.read() {
         match action {
             UiAction::Singleplayer => *screen = Screen::Worlds,
-            UiAction::OpenOptions => {
+            UiAction::OpenOptions if *screen == Screen::Title => {
                 origin.0 = *screen;
                 *screen = Screen::Options;
             }

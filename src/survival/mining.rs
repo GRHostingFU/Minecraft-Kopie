@@ -94,7 +94,12 @@ impl Plugin for MiningPlugin {
     }
 }
 
-fn setup_cracks(mut commands: Commands, mut images: ResMut<Assets<Image>>, mut materials: ResMut<Assets<StandardMaterial>>, mut meshes: ResMut<Assets<Mesh>>) {
+fn setup_cracks(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
     let handles = (0..CRACK_STAGES)
         .map(|stage| {
             let mut image = Image::new(

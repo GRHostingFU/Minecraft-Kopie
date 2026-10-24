@@ -93,11 +93,21 @@ pub struct UiButton {
 #[derive(Component)]
 pub struct Disabled;
 
+/// The button shows the active choice (the open options tab): it keeps a white frame.
+#[derive(Component)]
+pub struct Selected;
+
 /// Text of a button that changes with the settings (see `options::label_for`).
 #[derive(Component)]
 pub struct ActionLabel(pub UiAction);
 
-pub fn spawn_button(parent: &mut ChildSpawnerCommands, screen: Screen, action: UiAction, label: &str, width: f32) -> Entity {
+pub fn spawn_button(
+    parent: &mut ChildSpawnerCommands,
+    screen: Screen,
+    action: UiAction,
+    label: &str,
+    width: f32,
+) -> Entity {
     parent
         .spawn((
             UiButton { action, screen },
@@ -124,10 +134,17 @@ pub fn spawn_button(parent: &mut ChildSpawnerCommands, screen: Screen, action: U
 pub fn button_system(
     screen: Res<Screen>,
     mouse: Res<ButtonInput<MouseButton>>,
-    mut buttons: Query<(&UiButton, &RelativeCursorPosition, &mut BackgroundColor, &mut BorderColor, Has<Disabled>)>,
+    mut buttons: Query<(
+        &UiButton,
+        &RelativeCursorPosition,
+        &mut BackgroundColor,
+        &mut BorderColor,
+        Has<Disabled>,
+        Has<Selected>,
+    )>,
     mut clicks: MessageWriter<UiClick>,
 ) {
-    for (button, rcp, mut bg, mut border, disabled) in &mut buttons {
+    for (button, rcp, mut bg, mut border, disabled, selected) in &mut buttons {
         let live = *screen == button.screen;
         let hover = live && rcp.cursor_over && !disabled;
         let want = if disabled {
@@ -140,7 +157,7 @@ pub fn button_system(
         if bg.0 != want {
             bg.0 = want;
         }
-        let want_border = if hover { BorderColor::all(Color::WHITE) } else { bevel(disabled) };
+        let want_border = if hover || selected { BorderColor::all(Color::WHITE) } else { bevel(disabled) };
         if *border != want_border {
             *border = want_border;
         }
@@ -284,7 +301,8 @@ pub fn drag_sliders(
         active.0 = sliders.iter().find(|(s, r)| s.screen == *screen && r.cursor_over).map(|(s, _)| s.kind);
     }
     let Some(kind) = active.0 else { return };
-    let Some(x) = sliders.iter().find(|(s, _)| s.kind == kind).and_then(|(_, r)| r.normalized).map(|n| n.x + 0.5) else {
+    let Some(x) = sliders.iter().find(|(s, _)| s.kind == kind).and_then(|(_, r)| r.normalized).map(|n| n.x + 0.5)
+    else {
         return;
     };
     let v = slider_value(kind, x);
@@ -378,7 +396,13 @@ impl CreateForm {
     }
 }
 
-pub fn spawn_text_field(parent: &mut ChildSpawnerCommands, screen: Screen, id: FieldId, placeholder: &'static str, max_len: usize) {
+pub fn spawn_text_field(
+    parent: &mut ChildSpawnerCommands,
+    screen: Screen,
+    id: FieldId,
+    placeholder: &'static str,
+    max_len: usize,
+) {
     parent
         .spawn((
             TextField { id, screen, placeholder, max_len },
@@ -481,7 +505,7 @@ pub fn update_field_text(
     fields: Query<&TextField>,
     mut texts: Query<(&FieldText, &mut PixelText)>,
 ) {
-    let blink = (time.elapsed_secs() * 2.0) as u32 % 2 == 0;
+    let blink = ((time.elapsed_secs() * 2.0) as u32).is_multiple_of(2);
     for (FieldText(id), mut text) in &mut texts {
         let value = form.field(*id);
         let shown = if focused.0 == Some(*id) {
@@ -572,12 +596,7 @@ pub fn spawn_slot(
 }
 
 /// Writes the contents of `stack` into an icon node, its count label and its wear bar.
-pub fn show_stack(
-    stack: Option<ItemStack>,
-    icon: &mut ImageNode,
-    vis: &mut Visibility,
-    count: &mut Mut<PixelText>,
-) {
+pub fn show_stack(stack: Option<ItemStack>, icon: &mut ImageNode, vis: &mut Visibility, count: &mut Mut<PixelText>) {
     match stack {
         Some(s) => {
             let rect = Some(tile_rect(s.item.icon_tile()));
@@ -606,7 +625,10 @@ pub fn refresh_slots(
     inventory: Res<Inventory>,
     mut icons: Query<(&SlotIcon, &mut ImageNode, &mut Visibility), (Without<SlotCount>, Without<SlotWear>)>,
     mut counts: Query<(&SlotCount, &mut PixelText)>,
-    mut wear: Query<(&SlotWear, &mut Node, &mut BackgroundColor, &mut Visibility), (Without<SlotIcon>, Without<SlotCount>)>,
+    mut wear: Query<
+        (&SlotWear, &mut Node, &mut BackgroundColor, &mut Visibility),
+        (Without<SlotIcon>, Without<SlotCount>),
+    >,
     slots: Query<(&SlotView, &ComputedNode)>,
 ) {
     if !inventory.is_changed() {
@@ -634,7 +656,8 @@ pub fn refresh_slots(
     for (SlotWear(i), mut node, mut bg, mut vis) in &mut wear {
         match inventory.slots[*i].and_then(|s| s.wear()).filter(|w| *w > 0.0) {
             Some(w) => {
-                let size = slots.iter().find(|(s, _)| s.0 == *i).map_or(44.0, |(_, c)| c.size().x * c.inverse_scale_factor());
+                let size =
+                    slots.iter().find(|(s, _)| s.0 == *i).map_or(44.0, |(_, c)| c.size().x * c.inverse_scale_factor());
                 node.width = Val::Px(((1.0 - w) * (size * 0.76)).max(1.0));
                 bg.0 = wear_color(w);
                 *vis = Visibility::Inherited;
@@ -654,7 +677,15 @@ impl Plugin for WidgetsPlugin {
             .add_message::<UiClick>()
             .add_systems(
                 Update,
-                (focus_fields, text_input, button_system, drag_sliders, update_sliders, update_field_text, refresh_slots)
+                (
+                    focus_fields,
+                    text_input,
+                    button_system,
+                    drag_sliders,
+                    update_sliders,
+                    update_field_text,
+                    refresh_slots,
+                )
                     .chain()
                     .after(super::screens::ScreensSet),
             );

@@ -577,8 +577,11 @@ impl Inventory {
             })
         };
         // Worlds saved before the off hand existed have 40 slots and the cursor right behind them.
-        let (slot_count, cursor_at) =
-            if saved.len() == LEGACY_SAVE_LEN { (ARMOR_START + ARMOR_SLOTS, ARMOR_START + ARMOR_SLOTS) } else { (SAVED_SLOTS, SAVED_SLOTS) };
+        let (slot_count, cursor_at) = if saved.len() == LEGACY_SAVE_LEN {
+            (ARMOR_START + ARMOR_SLOTS, ARMOR_START + ARMOR_SLOTS)
+        } else {
+            (SAVED_SLOTS, SAVED_SLOTS)
+        };
         for (i, s) in saved.iter().take(slot_count).enumerate() {
             let s = clean(s);
             inv.slots[i] = s.filter(|s| inv.accepts(i, s.item));
@@ -925,7 +928,8 @@ mod tests {
         inv.cursor = stack(BlockId::LOG, 12);
         inv.slots[ARMOR_START] = Some(ItemStack::new(Item::IRON_HELMET, 1));
         inv.slots[OFFHAND] = stack(BlockId::TORCH, 9);
-        inv.slots[HOTBAR_SLOTS + 8] = Some(ItemStack { damage: 12, ..ItemStack::new(Item::tool(ToolKind::Axe, Tier::Iron), 1) });
+        inv.slots[HOTBAR_SLOTS + 8] =
+            Some(ItemStack { damage: 12, ..ItemStack::new(Item::tool(ToolKind::Axe, Tier::Iron), 1) });
         let json = serde_json::to_string(&inv.to_save()).unwrap();
         let back: Vec<Option<ItemStack>> = serde_json::from_str(&json).unwrap();
         let restored = Inventory::from_save(&back, 4);

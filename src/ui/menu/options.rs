@@ -7,7 +7,8 @@ use crate::settings::{self, GameSettings, OptionsFile, SAVES_DIR};
 use crate::ui::font::PixelText;
 use crate::ui::screens::{OptionsOrigin, Screen};
 use crate::ui::widgets::{
-    ActionLabel, OptionsTab, SLIDER_WIDTH, SliderKind, UiAction, UiClick, spawn_button, spawn_slider,
+    ActionLabel, OptionsTab, SLIDER_WIDTH, Selected, SliderKind, UiAction, UiButton, UiClick, spawn_button,
+    spawn_slider,
 };
 use crate::world::streaming::WorldSettings;
 use bevy::prelude::*;
@@ -89,7 +90,7 @@ fn spawn_options(mut commands: Commands) {
                 spawn_slider(c, Screen::Options, SliderKind::MusicVolume);
                 spawn_slider(c, Screen::Options, SliderKind::WeatherVolume);
                 c.spawn((
-                    PixelText::new("The sound engine is not part of this build yet;\nthe volumes are stored for it.").color(crate::ui::widgets::TEXT_DIM),
+                    PixelText::new("No sound engine in this build yet;\nthe volumes are saved for it.").color(crate::ui::widgets::TEXT_DIM),
                     Node { margin: UiRect::top(Val::Px(10.0)), ..default() },
                 ));
             });
@@ -128,9 +129,23 @@ fn update_labels(settings: Res<GameSettings>, mut labels: Query<(&ActionLabel, &
     }
 }
 
-fn show_tab(tab: Res<CurrentTab>, mut content: Query<(&TabContent, &mut Node)>) {
+fn show_tab(
+    mut commands: Commands,
+    tab: Res<CurrentTab>,
+    mut content: Query<(&TabContent, &mut Node)>,
+    buttons: Query<(Entity, &UiButton)>,
+) {
     if !tab.is_changed() {
         return;
+    }
+    for (e, b) in &buttons {
+        if let UiAction::Tab(t) = b.action {
+            if t == tab.0 {
+                commands.entity(e).insert(Selected);
+            } else {
+                commands.entity(e).remove::<Selected>();
+            }
+        }
     }
     for (c, mut node) in &mut content {
         let want = if c.0 == tab.0 { Display::Flex } else { Display::None };
@@ -194,7 +209,13 @@ mod tests {
 
     #[test]
     fn labels_follow_the_settings() {
-        let s = GameSettings { fullscreen: true, vsync: false, particles: ParticleLevel::Minimal, sprint_mode: KeyMode::Toggle, ..default() };
+        let s = GameSettings {
+            fullscreen: true,
+            vsync: false,
+            particles: ParticleLevel::Minimal,
+            sprint_mode: KeyMode::Toggle,
+            ..default()
+        };
         assert_eq!(label_for(UiAction::ToggleFullscreen, &s).unwrap(), "Fullscreen: ON");
         assert_eq!(label_for(UiAction::ToggleVsync, &s).unwrap(), "VSync: OFF");
         assert_eq!(label_for(UiAction::CycleParticles, &s).unwrap(), "Particles: Minimal");

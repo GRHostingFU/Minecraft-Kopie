@@ -56,7 +56,10 @@ pub fn plan(gen_: &TerrainGenerator, cell: IVec2) -> Option<Village> {
         return None;
     }
     let span = (CELL - 2 * MARGIN) as u32;
-    let center = IVec2::new(cell.x * CELL + MARGIN + ((h >> 8) % span) as i32, cell.y * CELL + MARGIN + ((h >> 16) % span) as i32);
+    let center = IVec2::new(
+        cell.x * CELL + MARGIN + ((h >> 8) % span) as i32,
+        cell.y * CELL + MARGIN + ((h >> 16) % span) as i32,
+    );
 
     // The ground must be flat, dry and plain.
     let (mut lo, mut hi) = (i32::MAX, i32::MIN);
@@ -120,14 +123,20 @@ impl<'a> Builder<'a> {
     fn build(mut self) -> Village {
         let c = self.center;
         // Houses: four on the axes, up to four more on the diagonals.
-        let mut houses: Vec<(i32, i32, Facing)> = vec![(13, 0, Facing(-1, 0)), (-13, 0, Facing(1, 0)), (0, 13, Facing(0, -1)), (0, -13, Facing(0, 1))];
-        for (i, (dx, dz, f)) in [(18, 18, Facing(0, -1)), (-18, 18, Facing(0, -1)), (18, -18, Facing(0, 1)), (-18, -18, Facing(0, 1))].into_iter().enumerate() {
+        let mut houses: Vec<(i32, i32, Facing)> =
+            vec![(13, 0, Facing(-1, 0)), (-13, 0, Facing(1, 0)), (0, 13, Facing(0, -1)), (0, -13, Facing(0, 1))];
+        for (i, (dx, dz, f)) in
+            [(18, 18, Facing(0, -1)), (-18, 18, Facing(0, -1)), (18, -18, Facing(0, 1)), (-18, -18, Facing(0, 1))]
+                .into_iter()
+                .enumerate()
+        {
             if hash(self.seed, i as i32, 3, 0xD1A6) % 100 < 60 {
                 houses.push((dx, dz, f));
             }
         }
         // Axis houses may be skipped now and then so no two villages look alike.
-        let keep: Vec<bool> = (0..houses.len()).map(|i| i >= 3 || hash(self.seed, i as i32, 9, 0x5E1) % 100 < 85).collect();
+        let keep: Vec<bool> =
+            (0..houses.len()).map(|i| i >= 3 || hash(self.seed, i as i32, 9, 0x5E1) % 100 < 85).collect();
 
         // Paths first: the houses overwrite whatever is in their way.
         let mut doors = Vec::new();
@@ -144,7 +153,11 @@ impl<'a> Builder<'a> {
         }
         for &(_, x0, z0, x1, z1, f) in &doors {
             // The path ends one step outside the door.
-            let (ex, ez) = if f.0 != 0 { (if f.0 < 0 { x0 - 1 } else { x1 + 1 }, (z0 + z1) / 2) } else { ((x0 + x1) / 2, if f.1 < 0 { z0 - 1 } else { z1 + 1 }) };
+            let (ex, ez) = if f.0 != 0 {
+                (if f.0 < 0 { x0 - 1 } else { x1 + 1 }, (z0 + z1) / 2)
+            } else {
+                ((x0 + x1) / 2, if f.1 < 0 { z0 - 1 } else { z1 + 1 })
+            };
             self.path(c.x, c.y, ex, ez);
         }
         self.well();
@@ -161,7 +174,13 @@ impl<'a> Builder<'a> {
             self.put(x, y + 3, z, BlockId::TORCH);
             self.fill(x, y + 4, z, x, y + 6, z, BlockId::AIR);
         }
-        Village { center: self.center, ground: self.ground, style: self.style, ops: self.ops, door_spots: self.door_spots }
+        Village {
+            center: self.center,
+            ground: self.ground,
+            style: self.style,
+            ops: self.ops,
+            door_spots: self.door_spots,
+        }
     }
 
     fn house_size(&self, i: usize) -> (i32, i32) {
@@ -226,7 +245,7 @@ impl<'a> Builder<'a> {
         let h = hash(self.seed, i as i32, 11, 0xBA11);
         match self.style {
             Style::Plains => {
-                let wall = if h % 3 == 0 { BlockId::COBBLE } else { BlockId::PLANKS };
+                let wall = if h.is_multiple_of(3) { BlockId::COBBLE } else { BlockId::PLANKS };
                 let roof = [BlockId::PLANKS, BlockId::BRICKS, BlockId::COBBLE][((h >> 4) % 3) as usize];
                 (wall, roof, BlockId::LOG, BlockId::PLANKS)
             }
@@ -265,7 +284,10 @@ impl<'a> Builder<'a> {
                     self.fill(x, g + 1, z, x, g + 4, z, pillar);
                     continue;
                 }
-                let is_door_wall = (door.0 < 0 && x == x0) || (door.0 > 0 && x == x1) || (door.1 < 0 && z == z0) || (door.1 > 0 && z == z1);
+                let is_door_wall = (door.0 < 0 && x == x0)
+                    || (door.0 > 0 && x == x1)
+                    || (door.1 < 0 && z == z0)
+                    || (door.1 > 0 && z == z1);
                 let along = if on_x_wall { z - z0 } else { x - x0 };
                 if is_door_wall && ((on_x_wall && z == zm) || (on_z_wall && x == xm)) {
                     self.put(x, g + 1, z, BlockId::AIR);
@@ -318,7 +340,10 @@ impl Village {
         let (ox, oz) = (pos.x * CHUNK_W as i32, pos.y * CHUNK_W as i32);
         for &(p, id) in &self.ops {
             let (lx, lz) = (p.x - ox, p.z - oz);
-            if (0..CHUNK_W as i32).contains(&lx) && (0..CHUNK_W as i32).contains(&lz) && (1..CHUNK_H as i32 - 1).contains(&p.y) {
+            if (0..CHUNK_W as i32).contains(&lx)
+                && (0..CHUNK_W as i32).contains(&lz)
+                && (1..CHUNK_H as i32 - 1).contains(&p.y)
+            {
                 chunk.set(lx as usize, p.y as usize, lz as usize, id);
             }
         }
@@ -345,7 +370,10 @@ mod tests {
 
     fn find_villages(seed: u32, cells: i32) -> Vec<Village> {
         let g = TerrainGenerator::new(seed);
-        (-cells..cells).flat_map(|z| (-cells..cells).map(move |x| IVec2::new(x, z))).filter_map(|c| plan(&g, c)).collect()
+        (-cells..cells)
+            .flat_map(|z| (-cells..cells).map(move |x| IVec2::new(x, z)))
+            .filter_map(|c| plan(&g, c))
+            .collect()
     }
 
     #[test]
@@ -398,7 +426,10 @@ mod tests {
     #[test]
     fn applying_a_village_to_chunks_places_its_blocks() {
         let g = TerrainGenerator::new(3);
-        let v = (-10..10).flat_map(|z| (-10..10).map(move |x| IVec2::new(x, z))).find_map(|c| plan(&g, c)).expect("a village");
+        let v = (-10..10)
+            .flat_map(|z| (-10..10).map(move |x| IVec2::new(x, z)))
+            .find_map(|c| plan(&g, c))
+            .expect("a village");
         let mut placed = 0;
         let ChunkRange { min, max } = ChunkRange::around(&v);
         for cz in min.y..=max.y {
@@ -424,7 +455,10 @@ mod tests {
     impl ChunkRange {
         fn around(v: &Village) -> Self {
             let c = |a: i32| a.div_euclid(CHUNK_W as i32);
-            Self { min: IVec2::new(c(v.center.x - RADIUS), c(v.center.y - RADIUS)), max: IVec2::new(c(v.center.x + RADIUS), c(v.center.y + RADIUS)) }
+            Self {
+                min: IVec2::new(c(v.center.x - RADIUS), c(v.center.y - RADIUS)),
+                max: IVec2::new(c(v.center.x + RADIUS), c(v.center.y + RADIUS)),
+            }
         }
     }
 }

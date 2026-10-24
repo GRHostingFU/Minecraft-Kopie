@@ -119,7 +119,12 @@ mod tests {
                     for z in 0..16 {
                         for x in 0..16 {
                             if c.get(x, y, z) == spec.block {
-                                assert!((spec.y_min - spec.size as i32..=spec.y_max + spec.size as i32).contains(&(y as i32)), "{} at y={y}", spec.block.name());
+                                assert!(
+                                    (spec.y_min - spec.size as i32..=spec.y_max + spec.size as i32)
+                                        .contains(&(y as i32)),
+                                    "{} at y={y}",
+                                    spec.block.name()
+                                );
                                 *totals.entry(spec.block).or_insert(0usize) += 1;
                             }
                         }
@@ -145,7 +150,11 @@ mod tests {
             for z in 0..16 {
                 for x in 0..16 {
                     let b = c.get(x, y, z);
-                    assert!(b != BlockId::DIAMOND_ORE && b != BlockId::REDSTONE_ORE && b != BlockId::GOLD_ORE, "found {} at y={y}", b.name());
+                    assert!(
+                        b != BlockId::DIAMOND_ORE && b != BlockId::REDSTONE_ORE && b != BlockId::GOLD_ORE,
+                        "found {} at y={y}",
+                        b.name()
+                    );
                 }
             }
         }

@@ -143,7 +143,9 @@ impl Item {
 
     /// The block this item places, if it is a placeable block.
     pub fn as_block(self) -> Option<BlockId> {
-        (self.0 != 0 && self.0 < BlockId::COUNT as u16).then_some(BlockId(self.0 as u8))
+        // Water is a fluid of the world, not something to carry around.
+        (self.0 != 0 && self.0 < BlockId::COUNT as u16 && self.0 != BlockId::WATER.0 as u16)
+            .then_some(BlockId(self.0 as u8))
     }
 
     pub fn kind(self) -> Option<ItemKind> {
@@ -214,7 +216,9 @@ impl Item {
         match self.kind() {
             Some(ItemKind::Block(b)) => b.name().to_string(),
             Some(ItemKind::Tool(k, t)) => format!("{} {}", t.label(), k.label()),
-            Some(ItemKind::Armor { slot, .. }) => ["Iron Helmet", "Iron Chestplate", "Iron Leggings", "Iron Boots"][slot].into(),
+            Some(ItemKind::Armor { slot, .. }) => {
+                ["Iron Helmet", "Iron Chestplate", "Iron Leggings", "Iron Boots"][slot].into()
+            }
             Some(_) => match self {
                 Self::STICK => "Stick",
                 Self::COAL => "Coal",
@@ -319,7 +323,7 @@ impl Item {
 
     /// Every item in registry order (blocks, armor, materials, tools).
     pub fn all() -> impl Iterator<Item = Item> {
-        let blocks = (1..BlockId::COUNT as u16).map(Item);
+        let blocks = (1..BlockId::COUNT as u16).filter(|id| *id != BlockId::WATER.0 as u16).map(Item);
         let armor = (100..=103).map(Item);
         let materials = (256..=Self::LAST_MATERIAL).map(Item);
         let tools = (Self::TOOL_BASE..Self::TOOL_BASE + 20).map(Item);
@@ -343,7 +347,8 @@ impl Item {
         }
         let tool = held.and_then(Item::tool_info);
         let effective = matches!((tool, info.tool), (Some((k, _)), Some(want)) if k == want);
-        let harvest = !info.needs_tool || matches!(tool, Some((_, t)) if effective && t.harvest_level() >= info.harvest_level);
+        let harvest =
+            !info.needs_tool || matches!(tool, Some((_, t)) if effective && t.harvest_level() >= info.harvest_level);
         let speed = if effective { tool.map_or(1.0, |(_, t)| t.speed()) } else { 1.0 };
         // Swords cut leaves and other soft blocks a bit faster, like cobwebs would be.
         let factor = if harvest { 1.5 } else { 5.0 };
@@ -366,7 +371,7 @@ impl Item {
             BlockId::DIAMOND_ORE => one(Item::DIAMOND),
             BlockId::REDSTONE_ORE => Some(ItemStack::new(Item::REDSTONE, 4 + (roll % 2) as u8)),
             BlockId::GLASS => None,
-            BlockId::LEAVES => (roll % 20 == 0).then(|| ItemStack::new(Item::APPLE, 1)),
+            BlockId::LEAVES => (roll.is_multiple_of(20)).then(|| ItemStack::new(Item::APPLE, 1)),
             other => one(Item::block(other)),
         }
     }
@@ -444,7 +449,8 @@ mod tests {
         assert_eq!(Item::tool(ToolKind::Sword, Tier::Diamond).name(), "Diamond Sword");
         assert!(!Item(5000).is_valid() && !Item(0).is_valid() && !Item(200).is_valid());
         assert_eq!(Item::IRON_BOOTS.armor_slot(), Some(3));
-        assert_eq!(Item::all().count(), (BlockId::COUNT as usize - 1) + 4 + 13 + 20);
+        assert_eq!(Item::all().count(), (BlockId::COUNT as usize - 2) + 4 + 13 + 20);
+        assert!(Item::block(BlockId::WATER).as_block().is_none() && !Item::block(BlockId::WATER).is_valid());
     }
 
     #[test]

@@ -1,6 +1,8 @@
 //! A clean-room voxel sandbox built on Bevy. All terrain, textures, fonts and UI are generated
 //! procedurally; the repository contains no third-party game assets.
 
+#![allow(clippy::too_many_arguments, clippy::type_complexity)] // Bevy systems take many parameters and complex queries.
+
 pub mod inventory;
 pub mod items;
 pub mod mobs;

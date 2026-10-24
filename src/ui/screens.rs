@@ -74,23 +74,21 @@ pub struct ScreensPlugin;
 
 impl Plugin for ScreensPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Screen>()
-            .init_resource::<OptionsOrigin>()
-            .add_systems(
-                Update,
-                (
-                    screen_input,
-                    open_death_screen,
-                    close_containers,
-                    pause_on_focus_loss,
-                    toggle_fullscreen_key,
-                    sync_capture,
-                    sync_time_pause,
-                    apply_window_settings,
-                )
-                    .chain()
-                    .in_set(ScreensSet),
-            );
+        app.init_resource::<Screen>().init_resource::<OptionsOrigin>().add_systems(
+            Update,
+            (
+                screen_input,
+                open_death_screen,
+                close_containers,
+                pause_on_focus_loss,
+                toggle_fullscreen_key,
+                sync_capture,
+                sync_time_pause,
+                apply_window_settings,
+            )
+                .chain()
+                .in_set(ScreensSet),
+        );
     }
 }
 
@@ -210,7 +208,8 @@ fn sync_capture(
     mut capture: ResMut<InputCapture>,
     mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
 ) {
-    let want = *state.get() == AppState::InGame && *screen == Screen::Playing && player.single().is_ok_and(|p| p.active);
+    let want =
+        *state.get() == AppState::InGame && *screen == Screen::Playing && player.single().is_ok_and(|p| p.active);
     if capture.0 != want {
         capture.0 = want;
     }

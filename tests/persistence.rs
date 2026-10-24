@@ -40,11 +40,11 @@ fn player(active: bool) -> Player {
 }
 
 /// An app with everything the save plugin reads, but no windows or rendering.
-fn save_app(dir: &PathBuf, active: bool) -> App {
+fn save_app(dir: &std::path::Path, active: bool) -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, StatesPlugin))
         .init_state::<AppState>()
-        .insert_resource(WorldSettings { seed: 77, render_distance: 9, save_dir: dir.clone() })
+        .insert_resource(WorldSettings { seed: 77, render_distance: 9, save_dir: dir.to_path_buf() })
         .insert_resource(GameMode::Survival)
         .insert_resource(TimeOfDay { t: 0.77, speed: 1.0 })
         .insert_resource(Vitals::from_save(13.0, 11.0, 2.5))

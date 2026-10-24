@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use minecraft_kopie::VoxelGamePlugins;
-use minecraft_kopie::session::{AppState, GameMode, PendingGame, seed_from_text};
+use minecraft_kopie::session::{AutoStart, GameMode, PendingGame, seed_from_text};
 use minecraft_kopie::settings::{self, SAVES_DIR};
 use minecraft_kopie::world::streaming::WorldSettings;
 use std::path::{Path, PathBuf};
@@ -25,7 +25,8 @@ fn parse_args() -> Args {
         match a.as_str() {
             "--seed" => args.seed = Some(value("--seed")),
             "--render-distance" => {
-                args.render_distance = Some(settings::clamp_render_distance(value("--render-distance").parse::<i32>().expect("integer")))
+                args.render_distance =
+                    Some(settings::clamp_render_distance(value("--render-distance").parse::<i32>().expect("integer")))
             }
             "--save-dir" => args.save_dir = Some(PathBuf::from(value("--save-dir"))),
             "--creative" => args.creative = true,
@@ -47,14 +48,17 @@ fn main() {
 
     let mut app = App::new();
     // The world settings of the title screen's panorama; a started world replaces them.
-    app.insert_resource(WorldSettings { seed: 1, render_distance, save_dir: PathBuf::from(SAVES_DIR).join(".panorama") })
-        .insert_resource(options.settings);
-    if let Some(dir) = args.save_dir {
+    app.insert_resource(WorldSettings {
+        seed: 1,
+        render_distance,
+        save_dir: PathBuf::from(SAVES_DIR).join(".panorama"),
+    })
+    .insert_resource(options.settings);
+    let autostart = args.save_dir.map(|dir| {
         let name = dir.file_name().map_or("World".to_string(), |n| n.to_string_lossy().into_owned());
         let mode = if args.creative { GameMode::Creative } else { GameMode::Survival };
-        app.insert_resource(PendingGame { dir, seed: seed_from_text(args.seed.as_deref().unwrap_or("")), mode, name });
-        app.insert_state(AppState::InGame);
-    }
+        PendingGame { dir, seed: seed_from_text(args.seed.as_deref().unwrap_or("")), mode, name }
+    });
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             title: "Minecraft Kopie".into(),
@@ -64,7 +68,10 @@ fn main() {
         // The save plugin intercepts the close button: it writes the world first, then exits.
         close_when_requested: false,
         ..default()
-    }))
-    .add_plugins(VoxelGamePlugins)
-    .run();
+    }));
+    if let Some(pending) = autostart {
+        // `--save-dir` skips the title screen: the state machine starts inside that world.
+        app.insert_resource(pending).insert_resource(AutoStart);
+    }
+    app.add_plugins(VoxelGamePlugins).run();
 }

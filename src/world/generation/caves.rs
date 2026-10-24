@@ -109,7 +109,11 @@ mod tests {
     #[test]
     fn entrances_exist_in_some_places_only() {
         let c = Caves::new(9);
-        let open = (-300..300).step_by(7).flat_map(|x| (-300..300).step_by(7).map(move |z| (x, z))).filter(|&(x, z)| c.ceiling_margin(x, z) < 0).count();
+        let open = (-300..300)
+            .step_by(7)
+            .flat_map(|x| (-300..300).step_by(7).map(move |z| (x, z)))
+            .filter(|&(x, z)| c.ceiling_margin(x, z) < 0)
+            .count();
         let total = (600 / 7 + 1) * (600 / 7 + 1);
         assert!(open > 0 && open < total / 3, "{open}/{total}");
     }

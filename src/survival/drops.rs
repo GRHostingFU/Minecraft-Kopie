@@ -9,6 +9,8 @@ use crate::player::viewmodel::{block_cube_mesh, icon_quad_mesh, is_cube_item};
 use crate::rendering::AtlasHandle;
 use crate::rendering::sky::TimeOfDay;
 use crate::session::{AppState, GameEntity};
+use crate::settings::GameSettings;
+use crate::world::BlockId;
 use crate::world::VoxelWorld;
 use bevy::ecs::system::SystemParam;
 use bevy::platform::collections::HashMap;
@@ -36,6 +38,21 @@ struct DropModel {
     phase: f32,
 }
 
+/// A little cube of debris flying off a broken block.
+#[derive(Component)]
+pub struct Particle {
+    pub vel: Vec3,
+    pub life: f32,
+}
+
+const MAX_PARTICLES: usize = 400;
+
+#[derive(Resource, Default)]
+pub struct ParticleAssets {
+    mesh: Option<Handle<Mesh>>,
+    materials: HashMap<u8, Handle<StandardMaterial>>,
+}
+
 #[derive(Resource, Default)]
 pub struct DropAssets {
     meshes: HashMap<Item, Handle<Mesh>>,
@@ -48,9 +65,12 @@ pub struct DropAssets {
 pub struct DropSpawner<'w, 's> {
     commands: Commands<'w, 's>,
     assets: ResMut<'w, DropAssets>,
+    particle_assets: ResMut<'w, ParticleAssets>,
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<StandardMaterial>>,
     atlas: Res<'w, AtlasHandle>,
+    particles: Query<'w, 's, (), With<Particle>>,
+    settings: Res<'w, GameSettings>,
 }
 
 impl DropSpawner<'_, '_> {
@@ -104,6 +124,45 @@ impl DropSpawner<'_, '_> {
             });
     }
 
+    /// Spawns the cubes that fly off a broken block (fewer or none with the particle option).
+    pub fn debris(&mut self, block: IVec3, id: BlockId) {
+        let count = (10.0 * self.settings.particles.factor()).round() as usize;
+        if count == 0 || self.particles.iter().count() >= MAX_PARTICLES {
+            return;
+        }
+        let mesh =
+            self.particle_assets.mesh.get_or_insert_with(|| self.meshes.add(Cuboid::new(0.12, 0.12, 0.12))).clone();
+        let materials = &mut self.materials;
+        let material = self
+            .particle_assets
+            .materials
+            .entry(id.0)
+            .or_insert_with(|| {
+                let [r, g, b] = id.base_color();
+                materials.add(StandardMaterial { base_color: Color::srgb(r, g, b), unlit: true, ..default() })
+            })
+            .clone();
+        // Cheap deterministic scatter based on the block position.
+        let mut s = (block.x as u32).wrapping_mul(73856093)
+            ^ (block.y as u32).wrapping_mul(19349663)
+            ^ (block.z as u32).wrapping_mul(83492791);
+        let mut rnd = move || {
+            s = s.wrapping_mul(1664525).wrapping_add(1013904223);
+            (s >> 8) as f32 / (1u32 << 24) as f32
+        };
+        for _ in 0..count {
+            let offset = Vec3::new(rnd(), rnd(), rnd());
+            let vel = Vec3::new(rnd() - 0.5, rnd() * 0.8 + 0.2, rnd() - 0.5) * 4.0;
+            self.commands.spawn((
+                Particle { vel, life: 0.6 + rnd() * 0.4 },
+                GameEntity,
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_translation(block.as_vec3() + offset),
+            ));
+        }
+    }
+
     /// Scatters `stack` like a broken block would: a small random hop.
     pub fn spawn_scattered(&mut self, stack: ItemStack, pos: Vec3, seed: u32) {
         let mut s = seed.wrapping_mul(2654435761).wrapping_add(0x9E37_79B9);
@@ -119,9 +178,11 @@ pub struct DropsPlugin;
 
 impl Plugin for DropsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DropAssets>().add_systems(
+        app.init_resource::<DropAssets>().init_resource::<ParticleAssets>().add_systems(
             Update,
-            (drop_physics, pickup_drops, animate_drops, shade_drops, cap_drops).chain().run_if(in_state(AppState::InGame)),
+            (drop_physics, pickup_drops, animate_drops, shade_drops, cap_drops)
+                .chain()
+                .run_if(in_state(AppState::InGame)),
         );
     }
 }

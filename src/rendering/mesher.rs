@@ -73,7 +73,9 @@ impl PaddedVolume {
                     if b.light() > 0 {
                         emitters.push(((y * PW + pz) * PW + px, b.light()));
                     }
-                    if b.shape() != Shape::Cube && (BORDER..BORDER + CHUNK_W).contains(&px) && (BORDER..BORDER + CHUNK_W).contains(&pz)
+                    if b.shape() != Shape::Cube
+                        && (BORDER..BORDER + CHUNK_W).contains(&px)
+                        && (BORDER..BORDER + CHUNK_W).contains(&pz)
                     {
                         has_models = true;
                     }
@@ -224,11 +226,17 @@ impl FaceKey {
     /// otherwise the gradient of one cell would be stretched over several blocks.
     /// Corner order is (u0,v0), (u1,v0), (u1,v1), (u0,v1).
     fn merge_along_u(&self) -> bool {
-        self.ao[0] == self.ao[1] && self.ao[3] == self.ao[2] && self.light[0] == self.light[1] && self.light[3] == self.light[2]
+        self.ao[0] == self.ao[1]
+            && self.ao[3] == self.ao[2]
+            && self.light[0] == self.light[1]
+            && self.light[3] == self.light[2]
     }
 
     fn merge_along_v(&self) -> bool {
-        self.ao[0] == self.ao[3] && self.ao[1] == self.ao[2] && self.light[0] == self.light[3] && self.light[1] == self.light[2]
+        self.ao[0] == self.ao[3]
+            && self.ao[1] == self.ao[2]
+            && self.light[0] == self.light[3]
+            && self.light[1] == self.light[2]
     }
 }
 
@@ -515,7 +523,15 @@ fn emit_models(vol: &PaddedVolume, out: &mut MeshBuffers) {
 
 /// Six faces of a box. UVs are the position inside the block cell, so the shader's `fract` shows
 /// exactly that part of the tile.
-fn emit_box(out: &mut MeshBuffers, origin: [f32; 3], min: [f32; 3], max: [f32; 3], block: BlockId, sky: f32, light: f32) {
+fn emit_box(
+    out: &mut MeshBuffers,
+    origin: [f32; 3],
+    min: [f32; 3],
+    max: [f32; 3],
+    block: BlockId,
+    sky: f32,
+    light: f32,
+) {
     let (x0, y0, z0) = (min[0], min[1], min[2]);
     let (x1, y1, z1) = (max[0], max[1], max[2]);
     // (normal, shade id, face, corners bottom-left, bottom-right, top-right, top-left)

@@ -78,15 +78,12 @@ pub struct ControllerPlugin;
 
 impl Plugin for ControllerPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<InputCapture>()
-            .init_resource::<SpawnPoint>()
-            .add_message::<RespawnRequest>()
-            .add_systems(
-                Update,
-                (resolve_spawn, respawn, mouse_look, toggle_fly, player_physics, sync_camera)
-                    .chain()
-                    .run_if(in_state(AppState::InGame)),
-            );
+        app.init_resource::<InputCapture>().init_resource::<SpawnPoint>().add_message::<RespawnRequest>().add_systems(
+            Update,
+            (resolve_spawn, respawn, mouse_look, toggle_fly, player_physics, sync_camera)
+                .chain()
+                .run_if(in_state(AppState::InGame)),
+        );
     }
 }
 
@@ -164,7 +161,11 @@ pub fn spawn_player(
 }
 
 /// Places the player on solid ground once the chunk below exists.
-fn resolve_spawn(world: Res<VoxelWorld>, mut spawn_point: ResMut<SpawnPoint>, mut q: Query<(&mut Player, &mut Transform)>) {
+fn resolve_spawn(
+    world: Res<VoxelWorld>,
+    mut spawn_point: ResMut<SpawnPoint>,
+    mut q: Query<(&mut Player, &mut Transform)>,
+) {
     let Ok((mut player, mut t)) = q.single_mut() else { return };
     if player.active {
         return;
@@ -270,7 +271,12 @@ fn sync_camera(
     }
 }
 
-fn toggle_fly(keys: Res<ButtonInput<KeyCode>>, capture: Res<InputCapture>, mode: Res<GameMode>, mut q: Query<&mut Player>) {
+fn toggle_fly(
+    keys: Res<ButtonInput<KeyCode>>,
+    capture: Res<InputCapture>,
+    mode: Res<GameMode>,
+    mut q: Query<&mut Player>,
+) {
     if capture.0
         && *mode == GameMode::Creative
         && keys.just_pressed(KeyCode::KeyF)
@@ -458,7 +464,8 @@ fn player_physics(
     sprint.blocked = controls.sprint && last.hit_horizontal;
     p.on_ground = last.on_ground;
     p.in_water = last.swimming;
-    p.sprinting = ((controls.sprint && !p.flying) || (p.flying && input.sprint)) && Vec2::new(vel.x, vel.z).length() > 0.5;
+    p.sprinting =
+        ((controls.sprint && !p.flying) || (p.flying && input.sprint)) && Vec2::new(vel.x, vel.z).length() > 0.5;
     p.sneaking = input.sneak && !last.swimming;
     if p.flying && last.on_ground {
         p.flying = false;

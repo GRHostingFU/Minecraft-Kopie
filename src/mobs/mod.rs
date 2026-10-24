@@ -88,7 +88,7 @@ impl MobKind {
             MobKind::Pig => Some(ItemStack::new(Item::RAW_PORK, n(3))),
             MobKind::Cow => Some(ItemStack::new(Item::RAW_BEEF, n(3))),
             MobKind::Sheep => Some(ItemStack::new(Item::block(BlockId::WOOL_WHITE), 1)),
-            MobKind::Zombie => (roll % 3 != 0).then(|| ItemStack::new(Item::ROTTEN_FLESH, n(2))),
+            MobKind::Zombie => (!roll.is_multiple_of(3)).then(|| ItemStack::new(Item::ROTTEN_FLESH, n(2))),
             MobKind::Villager => None,
         }
     }
@@ -298,7 +298,11 @@ impl MobSpawner<'_, '_> {
     /// Spawns a mob with its feet at `pos`.
     pub fn spawn(&mut self, kind: MobKind, pos: Vec3, home: Vec3, yaw: f32) -> Entity {
         if self.assets.hurt.is_none() {
-            let hurt = self.materials.add(StandardMaterial { base_color: Color::srgb(0.95, 0.18, 0.12), unlit: true, ..default() });
+            let hurt = self.materials.add(StandardMaterial {
+                base_color: Color::srgb(0.95, 0.18, 0.12),
+                unlit: true,
+                ..default()
+            });
             self.assets.hurt = Some(hurt);
         }
         let spec: ModelSpec = models::model(kind);
@@ -310,23 +314,34 @@ impl MobSpawner<'_, '_> {
             parts.push((self.mesh(l.size), self.material(l.color), Transform::from_translation(l.hip), Some(*l)));
         }
         self.commands
-            .spawn((Mob::new(kind, home, yaw), GameEntity, Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw)), Visibility::default()))
+            .spawn((
+                Mob::new(kind, home, yaw),
+                GameEntity,
+                Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw)),
+                Visibility::default(),
+            ))
             .with_children(|root| {
                 for (mesh, material, transform, limb) in parts {
                     match limb {
                         None => {
-                            root.spawn((Mesh3d(mesh), PartMaterial(material.clone()), MeshMaterial3d(material), transform));
+                            root.spawn((
+                                Mesh3d(mesh),
+                                PartMaterial(material.clone()),
+                                MeshMaterial3d(material),
+                                transform,
+                            ));
                         }
                         Some(l) => {
                             // The pivot sits at the hip; the box hangs below it.
-                            root.spawn((Limb { phase: l.phase, raised: l.raised }, transform, Visibility::default())).with_children(|pivot| {
-                                pivot.spawn((
-                                    Mesh3d(mesh),
-                                    PartMaterial(material.clone()),
-                                    MeshMaterial3d(material),
-                                    Transform::from_xyz(0.0, -l.size.y / 2.0, 0.0),
-                                ));
-                            });
+                            root.spawn((Limb { phase: l.phase, raised: l.raised }, transform, Visibility::default()))
+                                .with_children(|pivot| {
+                                    pivot.spawn((
+                                        Mesh3d(mesh),
+                                        PartMaterial(material.clone()),
+                                        MeshMaterial3d(material),
+                                        Transform::from_xyz(0.0, -l.size.y / 2.0, 0.0),
+                                    ));
+                                });
                         }
                     }
                 }
@@ -407,13 +422,15 @@ fn spawn_mobs(
             for dx in -1..=1 {
                 let Some(v) = generator.0.village_in_cell(cell + IVec2::new(dx, dz)) else { continue };
                 let c = Vec3::new(v.center.x as f32, v.ground as f32 + 1.0, v.center.y as f32);
-                if c.distance(origin) > 64.0 || mobs.iter().any(|(m, _)| m.kind == MobKind::Villager && m.home.distance(c) < 6.0) {
+                if c.distance(origin) > 64.0
+                    || mobs.iter().any(|(m, _)| m.kind == MobKind::Villager && m.home.distance(c) < 6.0)
+                {
                     continue;
                 }
                 if let Some(spot) = v.door_spots.get(rng.next_u32() as usize % v.door_spots.len().max(1)) {
                     let pos = spot.as_vec3() + Vec3::new(0.5, 0.0, 0.5);
                     if standable(&world, spot.x, spot.y, spot.z).is_some() {
-                        spawner.spawn(MobKind::Villager, pos, c, rng.unit() * 6.28);
+                        spawner.spawn(MobKind::Villager, pos, c, rng.unit() * std::f32::consts::TAU);
                         return;
                     }
                 }
@@ -430,8 +447,15 @@ fn spawn_mobs(
         for y in (start - 8..=start).rev() {
             let Some(_floor) = standable(&world, x, y, z) else { continue };
             let exposed = world.sky_exposed(IVec3::new(x, y, z));
-            if (exposed && night) || !exposed {
-                spawner.spawn(MobKind::Zombie, Vec3::new(x as f32 + 0.5, y as f32, z as f32 + 0.5), origin, rng.unit() * 6.28);
+            // On the surface only at night; in the daytime only in real darkness (well below the ground).
+            let deep = world.surface_height(x, z).is_some_and(|h| y + 5 < h);
+            if (exposed && night) || (!exposed && (night || deep)) {
+                spawner.spawn(
+                    MobKind::Zombie,
+                    Vec3::new(x as f32 + 0.5, y as f32, z as f32 + 0.5),
+                    origin,
+                    rng.unit() * std::f32::consts::TAU,
+                );
             }
             return;
         }
@@ -452,7 +476,12 @@ fn spawn_mobs(
         if let Some(hh) = world.surface_height(hx, hz)
             && standable(&world, hx, hh + 1, hz) == Some(BlockId::GRASS)
         {
-            spawner.spawn(kind, Vec3::new(hx as f32 + 0.5, hh as f32 + 1.0, hz as f32 + 0.5), origin, rng.unit() * 6.28);
+            spawner.spawn(
+                kind,
+                Vec3::new(hx as f32 + 0.5, hh as f32 + 1.0, hz as f32 + 0.5),
+                origin,
+                rng.unit() * std::f32::consts::TAU,
+            );
         }
     }
 }
@@ -638,7 +667,11 @@ fn apply_mob_damage(
 }
 
 /// Mobs far behind the player disappear (they would only cost time).
-fn despawn_far(mut commands: Commands, player: Query<&Transform, (With<Player>, Without<Mob>)>, mobs: Query<(Entity, &Transform), With<Mob>>) {
+fn despawn_far(
+    mut commands: Commands,
+    player: Query<&Transform, (With<Player>, Without<Mob>)>,
+    mobs: Query<(Entity, &Transform), With<Mob>>,
+) {
     let Ok(p) = player.single() else { return };
     for (e, t) in &mobs {
         if t.translation.distance(p.translation) > DESPAWN_DISTANCE {
@@ -684,7 +717,12 @@ fn tint_hurt(
 }
 
 /// The unlit mob materials follow the time of day.
-fn shade_mobs(tod: Res<TimeOfDay>, assets: Res<MobAssets>, mut materials: ResMut<Assets<StandardMaterial>>, mut last: Local<f32>) {
+fn shade_mobs(
+    tod: Res<TimeOfDay>,
+    assets: Res<MobAssets>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut last: Local<f32>,
+) {
     let l = 0.3 + 0.7 * tod.daylight();
     if (l - *last).abs() < 0.01 && !assets.is_changed() {
         return;

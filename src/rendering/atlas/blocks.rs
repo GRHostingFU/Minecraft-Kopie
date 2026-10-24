@@ -494,7 +494,7 @@ pub(super) fn paint(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
         tile::BOOKSHELF => {
             let planks = planks_color(x, y, u, v, tile::PLANKS as u32 * 31 + 5);
             // Planks frame at the top, bottom and between the two shelves.
-            if y < 3 || y >= 29 || (14..18).contains(&y) {
+            if !(3..29).contains(&y) || (14..18).contains(&y) {
                 return px(planks);
             }
             let shelf = y / 15;

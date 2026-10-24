@@ -7,11 +7,11 @@
 use super::font::PixelText;
 use super::screens::Screen;
 use super::widgets::*;
-use crate::inventory::creative::{self, Tab};
 use crate::inventory::crafting::SMELT_SECS;
+use crate::inventory::creative::{self, Tab};
 use crate::inventory::{
-    ARMOR_SLOTS, ARMOR_START, CRAFT_OUT, CRAFT_START, ClickButton, FURNACE_FUEL, FURNACE_IN, FURNACE_OUT, HOTBAR_SLOTS, Inventory,
-    OFFHAND,
+    ARMOR_SLOTS, ARMOR_START, CRAFT_OUT, CRAFT_START, ClickButton, FURNACE_FUEL, FURNACE_IN, FURNACE_OUT, HOTBAR_SLOTS,
+    Inventory, OFFHAND,
 };
 use crate::items::{Item, ItemStack};
 use crate::player::controller::PlayerCamera;
@@ -136,22 +136,25 @@ pub struct InventoryScreenPlugin;
 
 impl Plugin for InventoryScreenPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DragState>().init_resource::<CreativeState>().add_systems(PostStartup, spawn_inventory_screen).add_systems(
-            Update,
-            (
-                update_layout,
-                inventory_mouse,
-                creative_input,
-                tick_furnaces,
-                style_slots,
-                update_creative_cells,
-                update_furnace_progress,
-                update_cursor_stack,
-                update_mannequin,
-            )
-                .chain()
-                .run_if(in_state(AppState::InGame)),
-        );
+        app.init_resource::<DragState>()
+            .init_resource::<CreativeState>()
+            .add_systems(PostStartup, spawn_inventory_screen)
+            .add_systems(
+                Update,
+                (
+                    update_layout,
+                    inventory_mouse,
+                    creative_input,
+                    tick_furnaces,
+                    style_slots,
+                    update_creative_cells,
+                    update_furnace_progress,
+                    update_cursor_stack,
+                    update_mannequin,
+                )
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
+            );
     }
 }
 
@@ -160,16 +163,24 @@ fn section_node(display: Display) -> Node {
 }
 
 /// A rows x cols block of slots where cell `(r, c)` maps to inventory slot `index(r, c)`.
-fn slot_grid(parent: &mut ChildSpawnerCommands, atlas: &Handle<Image>, rows: usize, cols: usize, index: impl Fn(usize, usize) -> usize) {
-    parent.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(GAP), ..default() }).with_children(|grid| {
-        for r in 0..rows {
-            grid.spawn(Node { column_gap: Val::Px(GAP), ..default() }).with_children(|row| {
-                for c in 0..cols {
-                    spawn_slot(row, atlas, index(r, c), SLOT, true);
-                }
-            });
-        }
-    });
+fn slot_grid(
+    parent: &mut ChildSpawnerCommands,
+    atlas: &Handle<Image>,
+    rows: usize,
+    cols: usize,
+    index: impl Fn(usize, usize) -> usize,
+) {
+    parent.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(GAP), ..default() }).with_children(
+        |grid| {
+            for r in 0..rows {
+                grid.spawn(Node { column_gap: Val::Px(GAP), ..default() }).with_children(|row| {
+                    for c in 0..cols {
+                        spawn_slot(row, atlas, index(r, c), SLOT, true);
+                    }
+                });
+            }
+        },
+    );
 }
 
 fn atlas_image(atlas: &Handle<Image>, tile_id: u8) -> ImageNode {
@@ -211,46 +222,82 @@ fn spawn_inventory_screen(mut commands: Commands, atlas: Res<AtlasHandle>) {
                 panel.spawn((TitleText, PixelText::new("Inventory").scale(3.0)));
 
                 // Creative tabs.
-                panel.spawn((Section::Tabs, Node { column_gap: Val::Px(GAP), display: Display::None, ..default() })).with_children(|tabs| {
-                    for i in 0..6 {
-                        tabs.spawn((
-                            CreativeTabButton(i),
-                            RelativeCursorPosition::default(),
-                            Node { width: Val::Px(SLOT), height: Val::Px(SLOT), border: UiRect::all(Val::Px(2.0)), padding: UiRect::all(Val::Px(6.0)), ..default() },
-                            BackgroundColor(SLOT_BG),
-                            bevel(false),
-                        ))
-                        .with_children(|t| {
-                            let icon_tile = match creative::tabs().get(i) {
-                                Some(tab) => tab.icon.icon_tile(),
-                                None => tile::CHESTPLATE,
-                            };
-                            t.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, atlas_image(&atlas, icon_tile)));
-                        });
-                    }
-                });
-
-                // Armor, mannequin, off hand and the 2x2 crafting grid.
-                panel.spawn((Section::SurvivalTop, Node { column_gap: Val::Px(16.0), align_items: AlignItems::Stretch, display: Display::None, ..default() })).with_children(|top| {
-                    top.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(GAP), ..default() }).with_children(|col| {
-                        for i in 0..ARMOR_SLOTS {
-                            spawn_slot(col, &atlas, ARMOR_START + i, SLOT, true);
+                panel
+                    .spawn((Section::Tabs, Node { column_gap: Val::Px(GAP), display: Display::None, ..default() }))
+                    .with_children(|tabs| {
+                        for i in 0..6 {
+                            tabs.spawn((
+                                CreativeTabButton(i),
+                                RelativeCursorPosition::default(),
+                                Node {
+                                    width: Val::Px(SLOT),
+                                    height: Val::Px(SLOT),
+                                    border: UiRect::all(Val::Px(2.0)),
+                                    padding: UiRect::all(Val::Px(6.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(SLOT_BG),
+                                bevel(false),
+                            ))
+                            .with_children(|t| {
+                                let icon_tile = match creative::tabs().get(i) {
+                                    Some(tab) => tab.icon.icon_tile(),
+                                    None => tile::CHESTPLATE,
+                                };
+                                t.spawn((
+                                    Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                                    atlas_image(&atlas, icon_tile),
+                                ));
+                            });
                         }
                     });
-                    spawn_mannequin(top);
-                    top.spawn(Node { flex_direction: FlexDirection::Column, justify_content: JustifyContent::FlexEnd, ..default() }).with_children(|col| {
-                        spawn_slot(col, &atlas, OFFHAND, SLOT, true);
-                    });
-                    top.spawn(Node { flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, row_gap: Val::Px(8.0), margin: UiRect::left(Val::Px(18.0)), ..default() })
+
+                // Armor, mannequin, off hand and the 2x2 crafting grid.
+                panel
+                    .spawn((
+                        Section::SurvivalTop,
+                        Node {
+                            column_gap: Val::Px(16.0),
+                            align_items: AlignItems::Stretch,
+                            display: Display::None,
+                            ..default()
+                        },
+                    ))
+                    .with_children(|top| {
+                        top.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(GAP), ..default() })
+                            .with_children(|col| {
+                                for i in 0..ARMOR_SLOTS {
+                                    spawn_slot(col, &atlas, ARMOR_START + i, SLOT, true);
+                                }
+                            });
+                        spawn_mannequin(top);
+                        top.spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            justify_content: JustifyContent::FlexEnd,
+                            ..default()
+                        })
+                        .with_children(|col| {
+                            spawn_slot(col, &atlas, OFFHAND, SLOT, true);
+                        });
+                        top.spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            row_gap: Val::Px(8.0),
+                            margin: UiRect::left(Val::Px(18.0)),
+                            ..default()
+                        })
                         .with_children(|craft| {
                             craft.spawn(PixelText::new("Crafting").color(TEXT_DIM));
-                            craft.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(14.0), ..default() }).with_children(|row| {
-                                slot_grid(row, &atlas, 2, 2, |r, c| CRAFT_START + r * 3 + c);
-                                spawn_arrow(row, &atlas);
-                                spawn_slot(row, &atlas, CRAFT_OUT, SLOT + 8.0, true);
-                            });
+                            craft
+                                .spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(14.0), ..default() })
+                                .with_children(|row| {
+                                    slot_grid(row, &atlas, 2, 2, |r, c| CRAFT_START + r * 3 + c);
+                                    spawn_arrow(row, &atlas);
+                                    spawn_slot(row, &atlas, CRAFT_OUT, SLOT + 8.0, true);
+                                });
                         });
-                });
+                    });
 
                 // Creative item grid.
                 panel.spawn((Section::CreativeGrid, section_node(Display::None))).with_children(|grid| {
@@ -261,7 +308,13 @@ fn spawn_inventory_screen(mut commands: Commands, atlas: Res<AtlasHandle>) {
                                 row.spawn((
                                     CreativeCell(i),
                                     RelativeCursorPosition::default(),
-                                    Node { width: Val::Px(SLOT), height: Val::Px(SLOT), border: UiRect::all(Val::Px(2.0)), padding: UiRect::all(Val::Px(SLOT * 0.07)), ..default() },
+                                    Node {
+                                        width: Val::Px(SLOT),
+                                        height: Val::Px(SLOT),
+                                        border: UiRect::all(Val::Px(2.0)),
+                                        padding: UiRect::all(Val::Px(SLOT * 0.07)),
+                                        ..default()
+                                    },
                                     BackgroundColor(SLOT_BG),
                                     bevel(true),
                                 ))
@@ -269,47 +322,115 @@ fn spawn_inventory_screen(mut commands: Commands, atlas: Res<AtlasHandle>) {
                                     cell.spawn((
                                         CreativeCellIcon(i),
                                         Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-                                        ImageNode { image: atlas.clone(), image_mode: NodeImageMode::Stretch, ..default() },
+                                        ImageNode {
+                                            image: atlas.clone(),
+                                            image_mode: NodeImageMode::Stretch,
+                                            ..default()
+                                        },
                                         Visibility::Hidden,
                                     ));
                                 });
                             }
                         });
                     }
-                    grid.spawn(PixelText::new("Mouse wheel scrolls   Click: stack   Right click: one   Shift+click: to inventory").color(TEXT_DIM));
+                    grid.spawn(
+                        PixelText::new(
+                            "Mouse wheel scrolls   Click: stack   Right click: one   Shift+click: to inventory",
+                        )
+                        .color(TEXT_DIM),
+                    );
                 });
 
                 // Crafting table.
-                panel.spawn((Section::Workbench, Node { align_items: AlignItems::Center, column_gap: Val::Px(24.0), justify_content: JustifyContent::Center, display: Display::None, padding: UiRect::vertical(Val::Px(14.0)), ..default() })).with_children(|wb| {
-                    slot_grid(wb, &atlas, 3, 3, |r, c| CRAFT_START + r * 3 + c);
-                    spawn_arrow(wb, &atlas);
-                    spawn_slot(wb, &atlas, CRAFT_OUT, SLOT + 14.0, true);
-                });
+                panel
+                    .spawn((
+                        Section::Workbench,
+                        Node {
+                            align_items: AlignItems::Center,
+                            column_gap: Val::Px(24.0),
+                            justify_content: JustifyContent::Center,
+                            display: Display::None,
+                            padding: UiRect::vertical(Val::Px(14.0)),
+                            ..default()
+                        },
+                    ))
+                    .with_children(|wb| {
+                        slot_grid(wb, &atlas, 3, 3, |r, c| CRAFT_START + r * 3 + c);
+                        spawn_arrow(wb, &atlas);
+                        spawn_slot(wb, &atlas, CRAFT_OUT, SLOT + 14.0, true);
+                    });
 
                 // Furnace.
-                panel.spawn((Section::Furnace, Node { align_items: AlignItems::Center, column_gap: Val::Px(24.0), justify_content: JustifyContent::Center, display: Display::None, padding: UiRect::vertical(Val::Px(8.0)), ..default() })).with_children(|f| {
-                    f.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(6.0), ..default() }).with_children(|col| {
-                        spawn_slot(col, &atlas, FURNACE_IN, SLOT, true);
-                        // The flame fills from the bottom as fuel burns.
-                        col.spawn(Node { width: Val::Px(36.0), height: Val::Px(52.0), ..default() }).with_children(|flame| {
-                            flame.spawn((
-                                Node { position_type: PositionType::Absolute, width: Val::Px(36.0), height: Val::Px(52.0), ..default() },
-                                ImageNode { rect: Some(flame_rect(tile::UI_FLAME_OFF)), ..atlas_image(&atlas, tile::UI_FLAME_OFF) },
-                            ));
-                            flame
-                                .spawn((FlameFill, Node { position_type: PositionType::Absolute, bottom: Val::Px(0.0), width: Val::Px(36.0), height: Val::Px(0.0), overflow: Overflow::clip(), ..default() }))
-                                .with_children(|clip| {
-                                    clip.spawn((
-                                        Node { position_type: PositionType::Absolute, bottom: Val::Px(0.0), width: Val::Px(36.0), height: Val::Px(52.0), ..default() },
-                                        ImageNode { rect: Some(flame_rect(tile::UI_FLAME)), ..atlas_image(&atlas, tile::UI_FLAME) },
+                panel
+                    .spawn((
+                        Section::Furnace,
+                        Node {
+                            align_items: AlignItems::Center,
+                            column_gap: Val::Px(24.0),
+                            justify_content: JustifyContent::Center,
+                            display: Display::None,
+                            padding: UiRect::vertical(Val::Px(8.0)),
+                            ..default()
+                        },
+                    ))
+                    .with_children(|f| {
+                        f.spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::Center,
+                            row_gap: Val::Px(6.0),
+                            ..default()
+                        })
+                        .with_children(|col| {
+                            spawn_slot(col, &atlas, FURNACE_IN, SLOT, true);
+                            // The flame fills from the bottom as fuel burns.
+                            col.spawn(Node { width: Val::Px(36.0), height: Val::Px(52.0), ..default() }).with_children(
+                                |flame| {
+                                    flame.spawn((
+                                        Node {
+                                            position_type: PositionType::Absolute,
+                                            width: Val::Px(36.0),
+                                            height: Val::Px(52.0),
+                                            ..default()
+                                        },
+                                        ImageNode {
+                                            rect: Some(flame_rect(tile::UI_FLAME_OFF)),
+                                            ..atlas_image(&atlas, tile::UI_FLAME_OFF)
+                                        },
                                     ));
-                                });
+                                    flame
+                                        .spawn((
+                                            FlameFill,
+                                            Node {
+                                                position_type: PositionType::Absolute,
+                                                bottom: Val::Px(0.0),
+                                                width: Val::Px(36.0),
+                                                height: Val::Px(0.0),
+                                                overflow: Overflow::clip(),
+                                                ..default()
+                                            },
+                                        ))
+                                        .with_children(|clip| {
+                                            clip.spawn((
+                                                Node {
+                                                    position_type: PositionType::Absolute,
+                                                    bottom: Val::Px(0.0),
+                                                    width: Val::Px(36.0),
+                                                    height: Val::Px(52.0),
+                                                    ..default()
+                                                },
+                                                ImageNode {
+                                                    rect: Some(flame_rect(tile::UI_FLAME)),
+                                                    ..atlas_image(&atlas, tile::UI_FLAME)
+                                                },
+                                            ));
+                                        });
+                                },
+                            );
+                            spawn_slot(col, &atlas, FURNACE_FUEL, SLOT, true);
                         });
-                        spawn_slot(col, &atlas, FURNACE_FUEL, SLOT, true);
+                        spawn_arrow(f, &atlas);
+                        spawn_slot(f, &atlas, FURNACE_OUT, SLOT + 14.0, true);
                     });
-                    spawn_arrow(f, &atlas);
-                    spawn_slot(f, &atlas, FURNACE_OUT, SLOT + 14.0, true);
-                });
 
                 // Main inventory, three rows.
                 panel.spawn((Section::Main, section_node(Display::None))).with_children(|main| {
@@ -328,7 +449,13 @@ fn spawn_inventory_screen(mut commands: Commands, atlas: Res<AtlasHandle>) {
         .spawn((
             CursorStack,
             GlobalZIndex(50),
-            Node { position_type: PositionType::Absolute, width: Val::Px(SLOT - 6.0), height: Val::Px(SLOT - 6.0), display: Display::None, ..default() },
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(SLOT - 6.0),
+                height: Val::Px(SLOT - 6.0),
+                display: Display::None,
+                ..default()
+            },
         ))
         .with_children(|c| {
             c.spawn((
@@ -339,7 +466,12 @@ fn spawn_inventory_screen(mut commands: Commands, atlas: Res<AtlasHandle>) {
             c.spawn((
                 CursorCount,
                 PixelText::new(""),
-                Node { position_type: PositionType::Absolute, right: Val::Px(-2.0), bottom: Val::Px(-2.0), ..default() },
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: Val::Px(-2.0),
+                    bottom: Val::Px(-2.0),
+                    ..default()
+                },
             ));
         });
     commands.spawn((
@@ -347,7 +479,12 @@ fn spawn_inventory_screen(mut commands: Commands, atlas: Res<AtlasHandle>) {
         GlobalZIndex(60),
         PixelText::new(""),
         BackgroundColor(Color::srgba(0.12, 0.02, 0.2, 0.94)),
-        Node { position_type: PositionType::Absolute, padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)), display: Display::None, ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+            display: Display::None,
+            ..default()
+        },
     ));
 }
 
@@ -369,12 +506,32 @@ const ARROW_H: f32 = 45.0;
 fn spawn_arrow(parent: &mut ChildSpawnerCommands, atlas: &Handle<Image>) {
     parent.spawn(Node { width: Val::Px(ARROW_W), height: Val::Px(ARROW_H), ..default() }).with_children(|a| {
         a.spawn((
-            Node { position_type: PositionType::Absolute, width: Val::Px(ARROW_W), height: Val::Px(ARROW_H), ..default() },
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(ARROW_W),
+                height: Val::Px(ARROW_H),
+                ..default()
+            },
             ImageNode { rect: Some(arrow_rect(tile::UI_ARROW)), ..atlas_image(atlas, tile::UI_ARROW) },
         ));
-        a.spawn((ArrowFill, Node { position_type: PositionType::Absolute, width: Val::Px(0.0), height: Val::Px(ARROW_H), overflow: Overflow::clip(), ..default() })).with_children(|clip| {
+        a.spawn((
+            ArrowFill,
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(0.0),
+                height: Val::Px(ARROW_H),
+                overflow: Overflow::clip(),
+                ..default()
+            },
+        ))
+        .with_children(|clip| {
             clip.spawn((
-                Node { position_type: PositionType::Absolute, width: Val::Px(ARROW_W), height: Val::Px(ARROW_H), ..default() },
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Px(ARROW_W),
+                    height: Val::Px(ARROW_H),
+                    ..default()
+                },
                 ImageNode { rect: Some(arrow_rect(tile::UI_ARROW_FULL)), ..atlas_image(atlas, tile::UI_ARROW_FULL) },
             ));
         });
@@ -390,7 +547,12 @@ const IRON: Color = Color::srgb(0.74, 0.77, 0.82);
 fn spawn_mannequin(parent: &mut ChildSpawnerCommands) {
     parent
         .spawn((
-            Node { width: Val::Px(140.0), height: Val::Px(ARMOR_SLOTS as f32 * SLOT + (ARMOR_SLOTS - 1) as f32 * GAP), flex_shrink: 0.0, ..default() },
+            Node {
+                width: Val::Px(140.0),
+                height: Val::Px(ARMOR_SLOTS as f32 * SLOT + (ARMOR_SLOTS - 1) as f32 * GAP),
+                flex_shrink: 0.0,
+                ..default()
+            },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.35)),
         ))
         .with_children(|m| {
@@ -409,7 +571,14 @@ fn spawn_mannequin(parent: &mut ChildSpawnerCommands) {
             for (slot, x, y, w, h, color) in parts {
                 m.spawn((
                     MannequinPart { slot, base: color },
-                    Node { position_type: PositionType::Absolute, left: Val::Px(x), top: Val::Px(y), width: Val::Px(w), height: Val::Px(h), ..default() },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(x),
+                        top: Val::Px(y),
+                        width: Val::Px(w),
+                        height: Val::Px(h),
+                        ..default()
+                    },
                     BackgroundColor(color),
                 ));
             }
@@ -525,7 +694,12 @@ fn inventory_mouse(
                 };
                 inventory.cursor = rest;
                 let dir = cam.forward().as_vec3();
-                drops.spawn_delayed(ItemStack { count, ..c }, cam.translation() + dir * 0.5 - Vec3::Y * 0.3, dir * 4.5 + Vec3::Y * 1.5, 2.0);
+                drops.spawn_delayed(
+                    ItemStack { count, ..c },
+                    cam.translation() + dir * 0.5 - Vec3::Y * 0.3,
+                    dir * 4.5 + Vec3::Y * 1.5,
+                    2.0,
+                );
             }
         }
         if let Some(d) = &mut drag.0
@@ -647,8 +821,10 @@ fn update_furnace_progress(
     mut flame: Query<&mut Node, (With<FlameFill>, Without<ArrowFill>)>,
     mut arrows: Query<&mut Node, (With<ArrowFill>, Without<FlameFill>)>,
 ) {
-    let furnace = if *screen == Screen::Furnace { inventory.open_furnace.and_then(|p| inventory.furnace_state(p)) } else { None };
-    let (burn, cook) = furnace.map_or((0.0, 0.0), |f| (if f.burn_max > 0.0 { f.burn_left / f.burn_max } else { 0.0 }, f.cook / SMELT_SECS));
+    let furnace =
+        if *screen == Screen::Furnace { inventory.open_furnace.and_then(|p| inventory.furnace_state(p)) } else { None };
+    let (burn, cook) = furnace
+        .map_or((0.0, 0.0), |f| (if f.burn_max > 0.0 { f.burn_left / f.burn_max } else { 0.0 }, f.cook / SMELT_SECS));
     for mut n in &mut flame {
         let h = Val::Px(52.0 * burn.clamp(0.0, 1.0));
         if n.height != h {
@@ -738,7 +914,8 @@ fn update_cursor_stack(
 
     // Item name next to the pointer while hovering something with an empty hand.
     let hovered_stack = slots.iter().find(|(_, r)| r.cursor_over).and_then(|(s, _)| inventory.slots[s.0]);
-    let hovered_cell = cells.iter().find(|(_, r)| r.cursor_over).and_then(|(c, _)| creative_item(creative.tab, creative.scroll, c.0));
+    let hovered_cell =
+        cells.iter().find(|(_, r)| r.cursor_over).and_then(|(c, _)| creative_item(creative.tab, creative.scroll, c.0));
     let hovered_tab = tab_buttons.iter().find(|(_, r)| r.cursor_over).map(|(t, _)| t.0);
     let text = if held.is_some() {
         None
@@ -767,7 +944,7 @@ mod tests {
         assert_eq!(ARMOR_START, crate::inventory::INVENTORY_SLOTS);
         assert_eq!(HOTBAR_SLOTS + 3 * HOTBAR_SLOTS, crate::inventory::INVENTORY_SLOTS);
         assert_eq!(GRID_COLS * GRID_ROWS, 45);
-        assert!(CRAFT_OUT > CRAFT_START);
+        const { assert!(CRAFT_OUT > CRAFT_START) };
     }
 
     #[test]

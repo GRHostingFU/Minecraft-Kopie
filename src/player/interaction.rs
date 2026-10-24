@@ -9,8 +9,7 @@ use crate::mobs::{DamageMob, Mob, ray_aabb};
 use crate::physics::collision::Body;
 use crate::physics::raycast::{RayHit, raycast};
 use crate::session::{AppState, GameMode};
-use crate::settings::GameSettings;
-use crate::survival::drops::DropSpawner;
+use crate::survival::drops::{DropSpawner, Particle};
 use crate::survival::mining::MiningState;
 use crate::survival::{Experience, MAX_FOOD, Vitals};
 use crate::ui::screens::Screen;
@@ -18,7 +17,6 @@ use crate::world::VoxelWorld;
 use crate::world::block::{BlockId, Shape};
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::AccumulatedMouseScroll;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 
 /// How far blocks can be reached in each game mode.
@@ -61,70 +59,6 @@ struct ActionCooldown {
 #[derive(Resource, Default)]
 pub struct Eating(pub f32);
 
-#[derive(Component)]
-struct Particle {
-    vel: Vec3,
-    life: f32,
-}
-
-#[derive(Resource, Default)]
-pub struct ParticleAssets {
-    mesh: Option<Handle<Mesh>>,
-    materials: HashMap<u8, Handle<StandardMaterial>>,
-}
-
-const MAX_PARTICLES: usize = 400;
-
-/// Spawns the little cubes that fly off a broken block.
-#[derive(SystemParam)]
-pub struct ParticleSpawner<'w, 's> {
-    commands: Commands<'w, 's>,
-    assets: ResMut<'w, ParticleAssets>,
-    meshes: ResMut<'w, Assets<Mesh>>,
-    materials: ResMut<'w, Assets<StandardMaterial>>,
-    existing: Query<'w, 's, (), With<Particle>>,
-    settings: Res<'w, GameSettings>,
-}
-
-impl ParticleSpawner<'_, '_> {
-    pub fn debris(&mut self, block: IVec3, id: BlockId) {
-        let count = (10.0 * self.settings.particles.factor()).round() as usize;
-        if count == 0 || self.existing.iter().count() >= MAX_PARTICLES {
-            return;
-        }
-        let mesh = self.assets.mesh.get_or_insert_with(|| self.meshes.add(Cuboid::new(0.12, 0.12, 0.12))).clone();
-        let materials = &mut self.materials;
-        let material = self
-            .assets
-            .materials
-            .entry(id.0)
-            .or_insert_with(|| {
-                let [r, g, b] = id.base_color();
-                materials.add(StandardMaterial { base_color: Color::srgb(r, g, b), unlit: true, ..default() })
-            })
-            .clone();
-        // Cheap deterministic scatter based on the block position.
-        let mut s = (block.x as u32).wrapping_mul(73856093)
-            ^ (block.y as u32).wrapping_mul(19349663)
-            ^ (block.z as u32).wrapping_mul(83492791);
-        let mut rnd = move || {
-            s = s.wrapping_mul(1664525).wrapping_add(1013904223);
-            (s >> 8) as f32 / (1u32 << 24) as f32
-        };
-        for _ in 0..count {
-            let offset = Vec3::new(rnd(), rnd(), rnd());
-            let vel = Vec3::new(rnd() - 0.5, rnd() * 0.8 + 0.2, rnd() - 0.5) * 4.0;
-            self.commands.spawn((
-                Particle { vel, life: 0.6 + rnd() * 0.4 },
-                crate::session::GameEntity,
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(material.clone()),
-                Transform::from_translation(block.as_vec3() + offset),
-            ));
-        }
-    }
-}
-
 /// Everything needed to remove a block the way the player does.
 #[derive(SystemParam)]
 pub struct BlockBreaker<'w, 's> {
@@ -134,7 +68,6 @@ pub struct BlockBreaker<'w, 's> {
     vitals: ResMut<'w, Vitals>,
     mode: Res<'w, GameMode>,
     drops: DropSpawner<'w, 's>,
-    particles: ParticleSpawner<'w, 's>,
 }
 
 impl BlockBreaker<'_, '_> {
@@ -149,9 +82,11 @@ impl BlockBreaker<'_, '_> {
         if !self.world.set_block(pos, BlockId::AIR) {
             return false;
         }
-        self.particles.debris(pos, id);
+        self.drops.debris(pos, id);
         let centre = pos.as_vec3() + Vec3::splat(0.5);
-        let roll = (pos.x as u32).wrapping_mul(0x9E37_79B1) ^ (pos.y as u32).wrapping_mul(0x85EB_CA6B) ^ (pos.z as u32).wrapping_mul(0xC2B2_AE35);
+        let roll = (pos.x as u32).wrapping_mul(0x9E37_79B1)
+            ^ (pos.y as u32).wrapping_mul(0x85EB_CA6B)
+            ^ (pos.z as u32).wrapping_mul(0xC2B2_AE35);
         if *self.mode == GameMode::Survival {
             if id == BlockId::FURNACE {
                 for stack in self.inventory.remove_furnace(pos) {
@@ -178,7 +113,11 @@ impl BlockBreaker<'_, '_> {
         if self.world.block_at(above) == BlockId::TORCH {
             self.world.set_block(above, BlockId::AIR);
             if *self.mode == GameMode::Survival {
-                self.drops.spawn_scattered(ItemStack::new(Item::block(BlockId::TORCH), 1), above.as_vec3() + Vec3::splat(0.5), roll);
+                self.drops.spawn_scattered(
+                    ItemStack::new(Item::block(BlockId::TORCH), 1),
+                    above.as_vec3() + Vec3::splat(0.5),
+                    roll,
+                );
             }
         }
         true
@@ -193,7 +132,6 @@ impl Plugin for InteractionPlugin {
             .init_resource::<MobTarget>()
             .init_resource::<ActionCooldown>()
             .init_resource::<Eating>()
-            .init_resource::<ParticleAssets>()
             .add_message::<HandSwing>()
             .add_systems(
                 Update,
@@ -258,7 +196,12 @@ fn item_keys(
             inventory.take_one_selected();
         }
         let dir = cam.forward().as_vec3();
-        drops.spawn_delayed(ItemStack { count, ..stack }, cam.translation() + dir * 0.4 - Vec3::Y * 0.3, dir * 5.5 + Vec3::Y * 1.5, 2.0);
+        drops.spawn_delayed(
+            ItemStack { count, ..stack },
+            cam.translation() + dir * 0.4 - Vec3::Y * 0.3,
+            dir * 5.5 + Vec3::Y * 1.5,
+            2.0,
+        );
     }
 }
 
@@ -313,8 +256,9 @@ fn mine_or_attack(
         mining.reset();
         return;
     }
-    let left_down = mouse.pressed(MouseButton::Left);
+    // A click that is released within the same frame still counts as a press (slow frames).
     let left_click = mouse.just_pressed(MouseButton::Left);
+    let left_down = mouse.pressed(MouseButton::Left) || left_click;
     if !left_down {
         mining.reset();
         return;
@@ -323,7 +267,7 @@ fn mine_or_attack(
     // Mobs first: a click on one hits it.
     if let Some((entity, _)) = mob_target.0 {
         mining.reset();
-        if left_click || (cooldown.attack == 0.0 && mouse.pressed(MouseButton::Left)) {
+        if left_click || cooldown.attack == 0.0 {
             if cooldown.attack > 0.0 {
                 return;
             }
@@ -338,7 +282,13 @@ fn mine_or_attack(
             if *mode == GameMode::Survival {
                 breaker.vitals.add_exhaustion(0.1);
                 if held.and_then(Item::tool_info).is_some() {
-                    breaker.inventory.wear_selected(if held.and_then(Item::tool_info).is_some_and(|(k, _)| k == crate::items::ToolKind::Sword) { 1 } else { 2 });
+                    breaker.inventory.wear_selected(
+                        if held.and_then(Item::tool_info).is_some_and(|(k, _)| k == crate::items::ToolKind::Sword) {
+                            1
+                        } else {
+                            2
+                        },
+                    );
                 }
             }
         }
@@ -425,11 +375,11 @@ fn use_item(
     let dt = time.delta_secs();
     cooldown.place = (cooldown.place - dt).max(0.0);
     let Ok((p, pt)) = player.single() else { return };
-    if !capture.0 || !p.active || !mouse.pressed(MouseButton::Right) {
+    let click = mouse.just_pressed(MouseButton::Right);
+    if !capture.0 || !p.active || !(mouse.pressed(MouseButton::Right) || click) {
         eating.0 = 0.0;
         return;
     }
-    let click = mouse.just_pressed(MouseButton::Right);
 
     // Crafting tables and furnaces open instead of placing (sneak to place against them).
     if click

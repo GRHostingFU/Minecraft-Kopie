@@ -268,7 +268,15 @@ impl Plugin for SurvivalPlugin {
             .add_plugins((mining::MiningPlugin, drops::DropsPlugin))
             .add_systems(
                 Update,
-                (creative_keeps_full, movement_exhaustion, track_falling, drowning, apply_damage, tick_vitals, detect_death)
+                (
+                    creative_keeps_full,
+                    movement_exhaustion,
+                    track_falling,
+                    drowning,
+                    apply_damage,
+                    tick_vitals,
+                    detect_death,
+                )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -405,7 +413,11 @@ mod tests {
         v.saturation = 2.0;
         v.add_exhaustion(8.5);
         v.tick(0.0);
-        assert_eq!((v.saturation, v.food), (0.0, MAX_FOOD), "two units of saturation absorb the first two 4-point steps");
+        assert_eq!(
+            (v.saturation, v.food),
+            (0.0, MAX_FOOD),
+            "two units of saturation absorb the first two 4-point steps"
+        );
         v.add_exhaustion(4.0);
         v.tick(0.0);
         assert_eq!(v.food, MAX_FOOD - 1.0);

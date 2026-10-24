@@ -9,7 +9,11 @@ use std::sync::OnceLock;
 #[derive(Clone, Debug)]
 enum Pattern {
     /// Row-major `w * h` cells, already trimmed to their bounding box.
-    Shaped { w: usize, h: usize, cells: Vec<Option<Item>> },
+    Shaped {
+        w: usize,
+        h: usize,
+        cells: Vec<Option<Item>>,
+    },
     Shapeless(Vec<Item>),
 }
 

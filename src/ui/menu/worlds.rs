@@ -1,12 +1,15 @@
 //! Singleplayer: the list of saved worlds and the form that creates a new one.
 
 use super::{panel, spawn_page};
-use crate::session::{AppState, GameMode, PendingGame, WorldEntry, delete_world, list_worlds, seed_from_text, unique_world_dir};
+use crate::session::{
+    AppState, GameMode, PendingGame, WorldEntry, delete_world, list_worlds, seed_from_text, unique_world_dir,
+};
 use crate::settings::SAVES_DIR;
 use crate::ui::font::PixelText;
 use crate::ui::screens::Screen;
 use crate::ui::widgets::{
-    ActionLabel, CreateForm, Disabled, FieldId, FocusedField, TEXT_DIM, TEXT_GOLD, UiAction, UiButton, UiClick, spawn_button, spawn_text_field,
+    ActionLabel, CreateForm, Disabled, FieldId, FocusedField, TEXT_DIM, TEXT_GOLD, UiAction, UiButton, UiClick,
+    spawn_button, spawn_text_field,
 };
 use bevy::prelude::*;
 use std::path::PathBuf;
@@ -74,34 +77,52 @@ impl Plugin for WorldsPlugin {
 fn spawn_world_list(mut commands: Commands) {
     let page = spawn_page(&mut commands, Screen::Worlds, 0.55, 30);
     commands.entity(page).with_children(|root| {
-        root.spawn((PixelText::new("Select World").scale(4.0), Node { margin: UiRect::bottom(Val::Px(6.0)), ..default() }));
-        root.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), min_height: Val::Px(ROWS as f32 * 62.0), ..default() })
-            .with_children(|list| {
-                for i in 0..ROWS {
-                    list.spawn((
-                        WorldRow(i),
-                        UiButton { action: UiAction::SelectWorld(i), screen: Screen::Worlds },
-                        bevy::ui::RelativeCursorPosition::default(),
-                        Node {
-                            width: Val::Px(ROW_W),
-                            height: Val::Px(56.0),
-                            border: UiRect::all(Val::Px(3.0)),
-                            padding: UiRect::horizontal(Val::Px(12.0)),
-                            flex_direction: FlexDirection::Column,
-                            justify_content: JustifyContent::Center,
-                            row_gap: Val::Px(2.0),
-                            ..default()
-                        },
-                        BackgroundColor(crate::ui::widgets::BUTTON_BG),
-                        crate::ui::widgets::bevel(false),
-                    ))
-                    .with_children(|row| {
-                        row.spawn((RowName(i), PixelText::new("")));
-                        row.spawn((RowInfo(i), PixelText::new("").color(TEXT_DIM)));
-                    });
-                }
-                list.spawn((EmptyHint, PixelText::new("No worlds yet - create one!").color(TEXT_GOLD), Node { position_type: PositionType::Absolute, top: Val::Px(20.0), left: Val::Px(150.0), ..default() }));
-            });
+        root.spawn((
+            PixelText::new("Select World").scale(4.0),
+            Node { margin: UiRect::bottom(Val::Px(6.0)), ..default() },
+        ));
+        root.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(6.0),
+            min_height: Val::Px(ROWS as f32 * 62.0),
+            ..default()
+        })
+        .with_children(|list| {
+            for i in 0..ROWS {
+                list.spawn((
+                    WorldRow(i),
+                    UiButton { action: UiAction::SelectWorld(i), screen: Screen::Worlds },
+                    bevy::ui::RelativeCursorPosition::default(),
+                    Node {
+                        width: Val::Px(ROW_W),
+                        height: Val::Px(56.0),
+                        border: UiRect::all(Val::Px(3.0)),
+                        padding: UiRect::horizontal(Val::Px(12.0)),
+                        flex_direction: FlexDirection::Column,
+                        justify_content: JustifyContent::Center,
+                        row_gap: Val::Px(2.0),
+                        ..default()
+                    },
+                    BackgroundColor(crate::ui::widgets::BUTTON_BG),
+                    crate::ui::widgets::bevel(false),
+                ))
+                .with_children(|row| {
+                    row.spawn((RowName(i), PixelText::new("")));
+                    row.spawn((RowInfo(i), PixelText::new("").color(TEXT_DIM)));
+                });
+            }
+            list.spawn((
+                EmptyHint,
+                PixelText::new("No worlds yet - create one!").color(TEXT_GOLD),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(20.0),
+                    width: Val::Percent(100.0),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+            ));
+        });
         spawn_button(root, Screen::Worlds, UiAction::PlaySelected, "Play Selected World", ROW_W);
         root.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|row| {
             spawn_button(row, Screen::Worlds, UiAction::OpenCreate, "Create New World", 296.0);
@@ -115,10 +136,16 @@ fn spawn_create_page(mut commands: Commands) {
     let page = spawn_page(&mut commands, Screen::CreateWorld, 0.55, 30);
     commands.entity(page).with_children(|root| {
         root.spawn(panel()).with_children(|p| {
-            p.spawn((PixelText::new("Create New World").scale(3.0), Node { margin: UiRect::bottom(Val::Px(8.0)), ..default() }));
+            p.spawn((
+                PixelText::new("Create New World").scale(3.0),
+                Node { margin: UiRect::bottom(Val::Px(8.0)), ..default() },
+            ));
             p.spawn(PixelText::new("World Name").color(TEXT_DIM));
             spawn_text_field(p, Screen::CreateWorld, FieldId::WorldName, "New World", 24);
-            p.spawn((PixelText::new("Seed (leave blank for a random world)").color(TEXT_DIM), Node { margin: UiRect::top(Val::Px(6.0)), ..default() }));
+            p.spawn((
+                PixelText::new("Seed (leave blank for a random world)").color(TEXT_DIM),
+                Node { margin: UiRect::top(Val::Px(6.0)), ..default() },
+            ));
             spawn_text_field(p, Screen::CreateWorld, FieldId::Seed, "random", 24);
             p.spawn(Node { height: Val::Px(8.0), ..default() });
             spawn_button(p, Screen::CreateWorld, UiAction::ToggleGameMode, "Game Mode: Survival", 380.0);
@@ -129,7 +156,12 @@ fn spawn_create_page(mut commands: Commands) {
 }
 
 /// Rescans the saves folder whenever the world list opens.
-fn refresh_on_open(screen: Res<Screen>, mut list: ResMut<WorldList>, mut form: ResMut<CreateForm>, mut focus: ResMut<FocusedField>) {
+fn refresh_on_open(
+    screen: Res<Screen>,
+    mut list: ResMut<WorldList>,
+    mut form: ResMut<CreateForm>,
+    mut focus: ResMut<FocusedField>,
+) {
     if !screen.is_changed() {
         return;
     }
@@ -138,7 +170,9 @@ fn refresh_on_open(screen: Res<Screen>, mut list: ResMut<WorldList>, mut form: R
             // Keep the selection on the same folder if possible.
             let keep = list.selected.and_then(|i| list.entries.get(i)).map(|e| e.dir.clone());
             list.entries = list_worlds(&PathBuf::from(SAVES_DIR));
-            list.selected = keep.and_then(|d| list.entries.iter().position(|e| e.dir == d)).or(if list.entries.is_empty() { None } else { Some(0) });
+            list.selected = keep
+                .and_then(|d| list.entries.iter().position(|e| e.dir == d))
+                .or(if list.entries.is_empty() { None } else { Some(0) });
             list.confirm_delete = false;
             list.last_click = None;
             list.reveal_selected();
@@ -218,10 +252,9 @@ fn update_rows(
         PixelText::set(&mut text, &label);
     }
     for (RowInfo(i), mut text) in &mut infos {
-        let label = list
-            .entries
-            .get(list.scroll + i)
-            .map_or(String::new(), |e| format!("{}  -  seed {}  -  {}", mode_icon(e.mode), e.seed, age_text(e.last_played, now)));
+        let label = list.entries.get(list.scroll + i).map_or(String::new(), |e| {
+            format!("{}  -  seed {}  -  {}", mode_icon(e.mode), e.seed, age_text(e.last_played, now))
+        });
         PixelText::set(&mut text, &label);
     }
     if let Ok(mut h) = hint.single_mut() {
@@ -316,7 +349,8 @@ fn create_clicks(
             UiAction::ToggleGameMode => form.mode = form.mode.flip(),
             UiAction::CancelCreate => *screen = Screen::Worlds,
             UiAction::CreateWorld => {
-                let name = if form.name.trim().is_empty() { "New World".to_string() } else { form.name.trim().to_string() };
+                let name =
+                    if form.name.trim().is_empty() { "New World".to_string() } else { form.name.trim().to_string() };
                 let root = PathBuf::from(SAVES_DIR);
                 let dir = unique_world_dir(&root, &name);
                 commands.insert_resource(PendingGame { dir, seed: seed_from_text(&form.seed), mode: form.mode, name });
@@ -337,7 +371,13 @@ mod tests {
     use super::*;
 
     fn entry(n: usize) -> WorldEntry {
-        WorldEntry { dir: format!("saves/w{n}").into(), name: format!("World {n}"), seed: n as u32, mode: GameMode::Survival, last_played: n as u64 }
+        WorldEntry {
+            dir: format!("saves/w{n}").into(),
+            name: format!("World {n}"),
+            seed: n as u32,
+            mode: GameMode::Survival,
+            last_played: n as u64,
+        }
     }
 
     #[test]

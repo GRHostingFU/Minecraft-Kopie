@@ -178,7 +178,11 @@ impl Canvas {
     }
 
     fn get(&self, x: i32, y: i32) -> Option<Rgb> {
-        if (0..Self::N).contains(&x) && (0..Self::N).contains(&y) { self.fill[(y * Self::N + x) as usize] } else { None }
+        if (0..Self::N).contains(&x) && (0..Self::N).contains(&y) {
+            self.fill[(y * Self::N + x) as usize]
+        } else {
+            None
+        }
     }
 
     /// Draws every grid cell for which `inside` is true, colouring it with `color`.
@@ -342,7 +346,7 @@ fn item_icon(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
             c.shape(
                 |px_, py| {
                     let top = py > 5.0 && py < 9.5 && px_ > 4.0 + (9.5 - py) * 0.6 && px_ < 13.5 - (py - 5.0) * 0.3;
-                    let front = py >= 9.5 && py < 12.5 && px_ > 2.5 && px_ < 11.5;
+                    let front = (9.5..12.5).contains(&py) && px_ > 2.5 && px_ < 11.5;
                     top || front
                 },
                 |gx, gy| {
@@ -390,7 +394,11 @@ fn item_icon(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
                 },
                 |gx, gy| {
                     let hi = (gx - 5).abs() <= 1 && (6..=8).contains(&gy);
-                    if hi { [1.0, 0.55, 0.50] } else { scale([0.82, 0.10, 0.08], 0.85 + 0.3 * h(gx, gy, 8) - gy as f32 * 0.01) }
+                    if hi {
+                        [1.0, 0.55, 0.50]
+                    } else {
+                        scale([0.82, 0.10, 0.08], 0.85 + 0.3 * h(gx, gy, 8) - gy as f32 * 0.01)
+                    }
                 },
             );
             c.shape(|px_, py| (px_ - 8.4).abs() < 0.7 && (2.5..5.5).contains(&py), |_, _| [0.35, 0.22, 0.08]);
@@ -467,14 +475,50 @@ fn item_icon(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
 // HUD sprites (9x9 grids drawn at 3x inside a 32 px tile, offset 2)
 // -------------------------------------------------------------------------------------------------
 
-const HEART: [&str; 9] =
-    [".........", "..##.##..", ".#######.", "#########", "#########", ".#######.", "..#####..", "...###...", "....#...."];
-const DRUMSTICK: [&str; 9] =
-    ["......##.", ".....####", "....#####", "...######", "..#####..", ".#####...", "bb.##....", "bbb#.....", ".bb......"];
-const CHESTPLATE: [&str; 9] =
-    [".........", "###...###", "####.####", "#########", "#########", ".#######.", ".#######.", ".#######.", ".#######."];
-const BUBBLE: [&str; 9] =
-    ["..#####..", ".#.....#.", "#..##...#", "#.#.....#", "#.......#", "#.......#", "#.......#", ".#.....#.", "..#####.."];
+const HEART: [&str; 9] = [
+    ".........",
+    "..##.##..",
+    ".#######.",
+    "#########",
+    "#########",
+    ".#######.",
+    "..#####..",
+    "...###...",
+    "....#....",
+];
+const DRUMSTICK: [&str; 9] = [
+    "......##.",
+    ".....####",
+    "....#####",
+    "...######",
+    "..#####..",
+    ".#####...",
+    "bb.##....",
+    "bbb#.....",
+    ".bb......",
+];
+const CHESTPLATE: [&str; 9] = [
+    ".........",
+    "###...###",
+    "####.####",
+    "#########",
+    "#########",
+    ".#######.",
+    ".#######.",
+    ".#######.",
+    ".#######.",
+];
+const BUBBLE: [&str; 9] = [
+    "..#####..",
+    ".#.....#.",
+    "#..##...#",
+    "#.#.....#",
+    "#.......#",
+    "#.......#",
+    "#.......#",
+    ".#.....#.",
+    "..#####..",
+];
 
 /// One 9x9 sprite pixel: `' '` = nothing, otherwise `(fill?, outline)`.
 fn mask_at(mask: &[&str; 9], gx: i32, gy: i32) -> char {
@@ -501,7 +545,7 @@ fn ui_sprite(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
             sprite_mask(&HEART, x, y, |gx, gy, _| {
                 let filled = state == 0 || (state == 1 && gx < 5);
                 Some(if filled {
-                    if gx <= 2 && gy <= 3 && gy >= 1 && gx >= 1 {
+                    if (1..=2).contains(&gx) && (1..=3).contains(&gy) {
                         [1.0, 0.65, 0.65]
                     } else if gy >= 6 {
                         [0.62, 0.03, 0.05]
@@ -543,7 +587,7 @@ fn ui_sprite(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
             let filled = tile_id != tile::UI_ARROW;
             let (ax, ay) = (x - 5, y - 8);
             let shaft = (0..14).contains(&ax) && (5..10).contains(&ay);
-            let head = (14..22).contains(&ax) && (ay - 7).abs() <= (22 - ax) / 2 + 0;
+            let head = (14..22).contains(&ax) && (ay - 7).abs() <= (22 - ax) / 2;
             if shaft || head {
                 let c = if filled { [0.95, 0.95, 0.95] } else { [0.45, 0.45, 0.47] };
                 return px(if ax < 1 || ay == 5 { scale(c, 1.1) } else { c });
@@ -553,7 +597,8 @@ fn ui_sprite(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
         tile::UI_FLAME | tile::UI_FLAME_OFF => {
             let lit = tile_id == tile::UI_FLAME;
             let (fx, fy) = (x as f32 - 16.0, y as f32 - 16.0);
-            let width = 8.0 * (1.0 - ((fy + 4.0) / 14.0).powi(2)).max(0.0).sqrt() * (0.55 + 0.45 * ((fy + 14.0) / 28.0));
+            let width =
+                8.0 * (1.0 - ((fy + 4.0) / 14.0).powi(2)).max(0.0).sqrt() * (0.55 + 0.45 * ((fy + 14.0) / 28.0));
             if fy > -14.0 && fy < 12.0 && fx.abs() < width {
                 let t = ((fy + 14.0) / 26.0).clamp(0.0, 1.0);
                 let c = if lit { mix([1.0, 0.95, 0.4], [0.95, 0.35, 0.05], t) } else { [0.22, 0.20, 0.20] };

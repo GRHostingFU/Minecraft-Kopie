@@ -372,8 +372,11 @@ mod tests {
     #[test]
     fn real_chunks_contain_every_ore_and_open_caves() {
         let g = TerrainGenerator::new(2024);
-        let chunks: Vec<Chunk> = (0..8).flat_map(|z| (0..8).map(move |x| IVec2::new(x, z))).map(|p| g.generate(p)).collect();
-        for ore in [BlockId::COAL_ORE, BlockId::IRON_ORE, BlockId::GOLD_ORE, BlockId::REDSTONE_ORE, BlockId::DIAMOND_ORE] {
+        let chunks: Vec<Chunk> =
+            (0..8).flat_map(|z| (0..8).map(move |x| IVec2::new(x, z))).map(|p| g.generate(p)).collect();
+        for ore in
+            [BlockId::COAL_ORE, BlockId::IRON_ORE, BlockId::GOLD_ORE, BlockId::REDSTONE_ORE, BlockId::DIAMOND_ORE]
+        {
             assert!(count_blocks(&chunks, ore) > 0, "{} missing", ore.name());
         }
         assert!(count_blocks(&chunks, BlockId::COAL_ORE) > count_blocks(&chunks, BlockId::DIAMOND_ORE));

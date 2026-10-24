@@ -18,6 +18,7 @@ use crate::world::block::tile;
 use crate::world::streaming::WorldSettings;
 use crate::world::{BlockId, BlockQuery, VoxelWorld};
 use bevy::prelude::*;
+use bevy::ui::RelativeCursorPosition;
 use bevy::ui::widget::NodeImageMode;
 
 #[derive(Component)]
@@ -93,24 +94,41 @@ impl Plugin for HudPlugin {
     }
 }
 
-pub const SLOT_SIZE: f32 = 48.0;
-pub const SLOT_GAP: f32 = 4.0;
+pub const SLOT_SIZE: f32 = 56.0;
+pub const SLOT_GAP: f32 = 2.0;
 const HOTBAR_WIDTH: f32 = HOTBAR_SLOTS as f32 * SLOT_SIZE + (HOTBAR_SLOTS - 1) as f32 * SLOT_GAP;
 const ICON: f32 = 27.0;
 const ICON_STEP: f32 = 24.0;
 const HOTBAR_BOTTOM: f32 = 12.0;
 
 fn sprite(atlas: &Handle<Image>, tile_id: u8) -> ImageNode {
-    ImageNode { image: atlas.clone(), rect: Some(ui_sprite_rect(tile_id)), image_mode: NodeImageMode::Stretch, ..default() }
+    ImageNode {
+        image: atlas.clone(),
+        rect: Some(ui_sprite_rect(tile_id)),
+        image_mode: NodeImageMode::Stretch,
+        ..default()
+    }
 }
 
-fn icon_row(parent: &mut ChildSpawnerCommands, atlas: &Handle<Image>, make: impl Fn(usize) -> Icon, tile_id: u8, reverse: bool) {
+fn icon_row(
+    parent: &mut ChildSpawnerCommands,
+    atlas: &Handle<Image>,
+    make: impl Fn(usize) -> Icon,
+    tile_id: u8,
+    reverse: bool,
+) {
     for i in 0..10 {
         let slot = if reverse { 9 - i } else { i };
         parent.spawn((
             make(slot),
             sprite(atlas, tile_id),
-            Node { width: Val::Px(ICON), height: Val::Px(ICON), margin: UiRect::right(Val::Px(ICON_STEP - ICON)), flex_shrink: 0.0, ..default() },
+            Node {
+                width: Val::Px(ICON),
+                height: Val::Px(ICON),
+                margin: UiRect::right(Val::Px(ICON_STEP - ICON)),
+                flex_shrink: 0.0,
+                ..default()
+            },
         ));
     }
 }
@@ -120,7 +138,12 @@ fn spawn_hud(mut commands: Commands, atlas: Res<AtlasHandle>) {
     commands
         .spawn((
             HudRoot,
-            Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
             Visibility::Hidden,
         ))
         .with_children(|root| {
@@ -146,30 +169,39 @@ fn spawn_hud(mut commands: Commands, atlas: Res<AtlasHandle>) {
                 ..default()
             })
             .with_children(|wrap| {
-                wrap.spawn(Node { width: Val::Px(HOTBAR_WIDTH), height: Val::Px(SLOT_SIZE), column_gap: Val::Px(SLOT_GAP), ..default() })
-                    .with_children(|row| {
-                        for i in 0..HOTBAR_SLOTS {
-                            spawn_slot(row, &atlas, i, SLOT_SIZE, false);
-                        }
-                        row.spawn((
-                            SelectionFrame,
-                            Node {
-                                position_type: PositionType::Absolute,
-                                left: Val::Px(-4.0),
-                                top: Val::Px(-4.0),
-                                width: Val::Px(SLOT_SIZE + 8.0),
-                                height: Val::Px(SLOT_SIZE + 8.0),
-                                border: UiRect::all(Val::Px(4.0)),
-                                ..default()
-                            },
-                            BorderColor::all(Color::WHITE),
-                        ));
-                        // The off-hand slot sits to the left of the hotbar and only shows when used.
-                        row.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(-SLOT_SIZE - 14.0), ..default() })
-                            .with_children(|off| {
-                                spawn_slot(off, &atlas, OFFHAND, SLOT_SIZE, false);
-                            });
+                wrap.spawn(Node {
+                    width: Val::Px(HOTBAR_WIDTH),
+                    height: Val::Px(SLOT_SIZE),
+                    column_gap: Val::Px(SLOT_GAP),
+                    ..default()
+                })
+                .with_children(|row| {
+                    for i in 0..HOTBAR_SLOTS {
+                        spawn_slot(row, &atlas, i, SLOT_SIZE, false);
+                    }
+                    row.spawn((
+                        SelectionFrame,
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(-4.0),
+                            top: Val::Px(-4.0),
+                            width: Val::Px(SLOT_SIZE + 8.0),
+                            height: Val::Px(SLOT_SIZE + 8.0),
+                            border: UiRect::all(Val::Px(4.0)),
+                            ..default()
+                        },
+                        BorderColor::all(Color::WHITE),
+                    ));
+                    // The off-hand slot sits to the left of the hotbar and only shows when used.
+                    row.spawn(Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(-SLOT_SIZE - 14.0),
+                        ..default()
+                    })
+                    .with_children(|off| {
+                        spawn_slot(off, &atlas, OFFHAND, SLOT_SIZE, false);
                     });
+                });
             });
 
             // Hearts (left) and food (right) above the hotbar; armor and breath one row higher.
@@ -180,24 +212,34 @@ fn spawn_hud(mut commands: Commands, atlas: Res<AtlasHandle>) {
                 justify_content: JustifyContent::Center,
                 ..default()
             };
-            let inner = || Node { width: Val::Px(HOTBAR_WIDTH), justify_content: JustifyContent::SpaceBetween, ..default() };
+            let inner =
+                || Node { width: Val::Px(HOTBAR_WIDTH), justify_content: JustifyContent::SpaceBetween, ..default() };
             root.spawn((VitalsRow, row_node(HOTBAR_BOTTOM + SLOT_SIZE + 38.0))).with_children(|wrap| {
                 wrap.spawn(inner()).with_children(|row| {
-                    row.spawn(Node::default()).with_children(|hearts| icon_row(hearts, &atlas, Icon::Heart, tile::UI_HEART_FULL, false));
-                    row.spawn(Node::default()).with_children(|food| icon_row(food, &atlas, Icon::Food, tile::UI_FOOD_FULL, true));
+                    row.spawn(Node::default())
+                        .with_children(|hearts| icon_row(hearts, &atlas, Icon::Heart, tile::UI_HEART_FULL, false));
+                    row.spawn(Node::default())
+                        .with_children(|food| icon_row(food, &atlas, Icon::Food, tile::UI_FOOD_FULL, true));
                 });
             });
             root.spawn((VitalsRow, row_node(HOTBAR_BOTTOM + SLOT_SIZE + 38.0 + ICON + 3.0))).with_children(|wrap| {
                 wrap.spawn(inner()).with_children(|row| {
-                    row.spawn(Node::default()).with_children(|armor| icon_row(armor, &atlas, Icon::Armor, tile::UI_ARMOR_EMPTY, false));
-                    row.spawn(Node::default()).with_children(|air| icon_row(air, &atlas, Icon::Bubble, tile::UI_BUBBLE, true));
+                    row.spawn(Node::default())
+                        .with_children(|armor| icon_row(armor, &atlas, Icon::Armor, tile::UI_ARMOR_EMPTY, false));
+                    row.spawn(Node::default())
+                        .with_children(|air| icon_row(air, &atlas, Icon::Bubble, tile::UI_BUBBLE, true));
                 });
             });
 
             // Experience bar and level.
             root.spawn((VitalsRow, row_node(HOTBAR_BOTTOM + SLOT_SIZE + 12.0))).with_children(|wrap| {
                 wrap.spawn((
-                    Node { width: Val::Px(HOTBAR_WIDTH), height: Val::Px(12.0), border: UiRect::all(Val::Px(2.0)), ..default() },
+                    Node {
+                        width: Val::Px(HOTBAR_WIDTH),
+                        height: Val::Px(12.0),
+                        border: UiRect::all(Val::Px(2.0)),
+                        ..default()
+                    },
                     BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.65)),
                     BorderColor::all(Color::srgb(0.12, 0.12, 0.12)),
                 ))
@@ -209,9 +251,11 @@ fn spawn_hud(mut commands: Commands, atlas: Res<AtlasHandle>) {
                     ));
                 });
             });
-            root.spawn((VitalsRow, row_node(HOTBAR_BOTTOM + SLOT_SIZE + 26.0 + ICON * 2.0 + 10.0))).with_children(|wrap| {
-                wrap.spawn((XpLevel, PixelText::new("").scale(3.0).color(Color::srgb(0.5, 1.0, 0.25))));
-            });
+            root.spawn((VitalsRow, row_node(HOTBAR_BOTTOM + SLOT_SIZE + 26.0 + ICON * 2.0 + 10.0))).with_children(
+                |wrap| {
+                    wrap.spawn((XpLevel, PixelText::new("").scale(3.0).color(Color::srgb(0.5, 1.0, 0.25))));
+                },
+            );
 
             // The item name floats above everything.
             root.spawn(Node {
@@ -226,7 +270,12 @@ fn spawn_hud(mut commands: Commands, atlas: Res<AtlasHandle>) {
             });
 
             // Full-screen tints.
-            let full = || Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+            let full = || Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            };
             root.spawn((WaterOverlay, full(), BackgroundColor(Color::srgba(0.1, 0.25, 0.6, 0.0))));
             root.spawn((HurtFlash, full(), BackgroundColor(Color::srgba(0.8, 0.0, 0.0, 0.0))));
         });
@@ -246,7 +295,7 @@ fn toggle_hud_visibility(
     inventory: Res<Inventory>,
     mut root: Query<&mut Visibility, With<HudRoot>>,
     mut rows: Query<&mut Node, With<VitalsRow>>,
-    mut offhand: Query<(&SlotView, &mut Visibility), Without<HudRoot>>,
+    mut offhand: Query<(&SlotView, &mut Visibility), (Without<HudRoot>, Without<RelativeCursorPosition>)>,
 ) {
     if let Ok(mut v) = root.single_mut() {
         let want = if *screen == Screen::Playing { Visibility::Inherited } else { Visibility::Hidden };
@@ -319,7 +368,11 @@ pub fn icon_state(value: f32, index: usize) -> u8 {
     }
 }
 
-fn update_vitals_icons(vitals: Res<Vitals>, inventory: Res<Inventory>, mut icons: Query<(&Icon, &mut ImageNode, &mut Node)>) {
+fn update_vitals_icons(
+    vitals: Res<Vitals>,
+    inventory: Res<Inventory>,
+    mut icons: Query<(&Icon, &mut ImageNode, &mut Node)>,
+) {
     if !vitals.is_changed() && !inventory.is_changed() {
         return;
     }
@@ -344,7 +397,11 @@ fn update_vitals_icons(vitals: Res<Vitals>, inventory: Res<Inventory>, mut icons
     }
 }
 
-fn update_xp(xp: Res<Experience>, mut fill: Query<&mut Node, With<XpFill>>, mut level: Query<&mut PixelText, With<XpLevel>>) {
+fn update_xp(
+    xp: Res<Experience>,
+    mut fill: Query<&mut Node, With<XpFill>>,
+    mut level: Query<&mut PixelText, With<XpLevel>>,
+) {
     if let Ok(mut n) = fill.single_mut() {
         let w = Val::Percent(xp.progress() * 100.0);
         if n.width != w {
@@ -481,7 +538,9 @@ mod tests {
 
     #[test]
     fn hotbar_layout_numbers_add_up() {
-        assert_eq!(HOTBAR_WIDTH, 9.0 * 48.0 + 8.0 * 4.0);
-        assert!(ICON_STEP < ICON);
+        assert_eq!(HOTBAR_WIDTH, 9.0 * 56.0 + 8.0 * 2.0);
+        const { assert!(ICON_STEP < ICON) };
+        // Hearts on the left and hunger on the right must not touch each other.
+        const { assert!(2.0 * (10.0 * ICON_STEP + ICON - ICON_STEP) < HOTBAR_WIDTH) };
     }
 }

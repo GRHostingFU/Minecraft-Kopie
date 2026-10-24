@@ -34,20 +34,34 @@ fn spawn_menus(mut commands: Commands) {
     let pause = spawn_page(&mut commands, Screen::Pause, 0.6, 40);
     commands.entity(pause).with_children(|root| {
         root.spawn(panel()).with_children(|p| {
-            p.spawn((PixelText::new("Game Menu").scale(3.0), Node { margin: UiRect::bottom(Val::Px(6.0)), ..default() }));
+            p.spawn((
+                PixelText::new("Game Menu").scale(3.0),
+                Node { margin: UiRect::bottom(Val::Px(6.0)), ..default() },
+            ));
             spawn_button(p, Screen::Pause, UiAction::Resume, "Back to Game", 400.0);
             spawn_button(p, Screen::Pause, UiAction::OpenOptions, "Options...", 400.0);
             spawn_button(p, Screen::Pause, UiAction::SaveWorld, "Save World", 400.0);
             spawn_button(p, Screen::Pause, UiAction::SaveAndTitle, "Save and Quit to Title", 400.0);
-            p.spawn((ModeText, PixelText::new("").color(TEXT_DIM), Node { margin: UiRect::top(Val::Px(6.0)), ..default() }));
+            p.spawn((
+                ModeText,
+                PixelText::new("").color(TEXT_DIM),
+                Node { margin: UiRect::top(Val::Px(6.0)), ..default() },
+            ));
             p.spawn((SaveStatusText, PixelText::new("").color(TEXT_DIM)));
         });
     });
 
     let death = spawn_page(&mut commands, Screen::Death, 0.0, 45);
     commands.entity(death).insert(BackgroundColor(Color::srgba(0.45, 0.02, 0.02, 0.62))).with_children(|root| {
-        root.spawn((PixelText::new("You died!").scale(8.0).color(Color::srgb(1.0, 0.85, 0.85)), Node { margin: UiRect::bottom(Val::Px(4.0)), ..default() }));
-        root.spawn((ScoreText, PixelText::new("").scale(3.0), Node { margin: UiRect::bottom(Val::Px(18.0)), ..default() }));
+        root.spawn((
+            PixelText::new("You died!").scale(8.0).color(Color::srgb(1.0, 0.85, 0.85)),
+            Node { margin: UiRect::bottom(Val::Px(4.0)), ..default() },
+        ));
+        root.spawn((
+            ScoreText,
+            PixelText::new("").scale(3.0),
+            Node { margin: UiRect::bottom(Val::Px(18.0)), ..default() },
+        ));
         spawn_button(root, Screen::Death, UiAction::Respawn, "Respawn", 400.0);
         spawn_button(root, Screen::Death, UiAction::DeathToTitle, "Title Screen", 400.0);
     });

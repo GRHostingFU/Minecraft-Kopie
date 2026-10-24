@@ -9,10 +9,10 @@ use crate::rendering::sky::{SkyCenter, TimeOfDay};
 use crate::settings::SAVES_DIR;
 use crate::survival::{Experience, Vitals};
 use crate::ui::screens::Screen;
+use crate::world::VoxelWorld;
 use crate::world::generation::TerrainGenerator;
 use crate::world::storage::{self, LevelData};
 use crate::world::streaming::{ChunkAnchor, Generator, WorldReset, WorldSettings};
-use crate::world::VoxelWorld;
 use bevy::camera::Projection;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -62,6 +62,10 @@ pub struct PendingGame {
     pub name: String,
 }
 
+/// Present when the command line named a world: the title screen is skipped once at startup.
+#[derive(Resource)]
+pub struct AutoStart;
+
 /// The slowly turning camera behind the main menu.
 #[derive(Component)]
 pub struct MenuCamera;
@@ -75,7 +79,9 @@ pub struct MenuCamera;
 pub fn seed_from_text(text: &str) -> u32 {
     let t = text.trim();
     if t.is_empty() {
-        return std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() ^ d.as_secs() as u32);
+        return std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(1, |d| d.subsec_nanos() ^ d.as_secs() as u32);
     }
     if let Ok(n) = t.parse::<i64>() {
         return n as u32;
@@ -119,7 +125,11 @@ pub fn list_worlds(root: &Path) -> Vec<WorldEntry> {
         .filter_map(|e| {
             let level = storage::load_level(&e.path())?;
             Some(WorldEntry {
-                name: if level.name.trim().is_empty() { e.file_name().to_string_lossy().into_owned() } else { level.name.clone() },
+                name: if level.name.trim().is_empty() {
+                    e.file_name().to_string_lossy().into_owned()
+                } else {
+                    level.name.clone()
+                },
                 dir: e.path(),
                 seed: level.seed,
                 mode: level.game_mode,
@@ -133,11 +143,8 @@ pub fn list_worlds(root: &Path) -> Vec<WorldEntry> {
 
 /// A folder name for a new world: the sanitised name, with a number appended if it is taken.
 pub fn unique_world_dir(root: &Path, name: &str) -> PathBuf {
-    let base: String = name
-        .trim()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect();
+    let base: String =
+        name.trim().chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
     let base = if base.is_empty() { "World".to_string() } else { base };
     let mut candidate = root.join(&base);
     let mut n = 2;
@@ -170,11 +177,20 @@ impl Plugin for SessionPlugin {
             .add_systems(OnExit(AppState::MainMenu), teardown_panorama)
             .add_systems(
                 OnEnter(AppState::InGame),
-                (begin_session, crate::player::controller::spawn_player, crate::player::viewmodel::spawn_view_model).chain(),
+                (begin_session, crate::player::controller::spawn_player, crate::player::viewmodel::spawn_view_model)
+                    .chain(),
             )
             .add_systems(OnExit(AppState::InGame), end_session)
-            .add_systems(Update, drift_panorama.run_if(in_state(AppState::MainMenu)));
+            .add_systems(
+                Update,
+                (drift_panorama.run_if(in_state(AppState::MainMenu)), autostart.run_if(resource_exists::<AutoStart>)),
+            );
     }
+}
+
+fn autostart(mut commands: Commands, mut next: ResMut<NextState<AppState>>) {
+    commands.remove_resource::<AutoStart>();
+    next.set(AppState::InGame);
 }
 
 fn begin_session(
@@ -238,8 +254,12 @@ fn setup_panorama(
         Projection::Perspective(PerspectiveProjection { fov: 75f32.to_radians(), near: 0.1, far: 2500.0, ..default() }),
         bevy::core_pipeline::tonemapping::Tonemapping::None,
         bevy::core_pipeline::tonemapping::DebandDither::Disabled,
-        Transform::from_xyz(spawn.x as f32, 110.0, spawn.y as f32)
-            .with_rotation(Quat::from_euler(EulerRot::YXZ, 0.0, -0.18, 0.0)),
+        Transform::from_xyz(spawn.x as f32, 110.0, spawn.y as f32).with_rotation(Quat::from_euler(
+            EulerRot::YXZ,
+            0.0,
+            -0.18,
+            0.0,
+        )),
     ));
 }
 
@@ -288,7 +308,8 @@ mod tests {
     #[test]
     fn a_new_world_writes_its_seed_immediately_and_an_old_one_keeps_it() {
         let root = tmp("prepare");
-        let pending = |seed| PendingGame { dir: root.join("w"), seed, mode: GameMode::Creative, name: "My World".into() };
+        let pending =
+            |seed| PendingGame { dir: root.join("w"), seed, mode: GameMode::Creative, name: "My World".into() };
         let first = prepare_level(&pending(1234));
         assert_eq!((first.seed, first.spawned, first.game_mode), (1234, false, GameMode::Creative));
         assert_eq!(storage::load_level(&root.join("w")).unwrap().seed, 1234, "written to disk right away");
