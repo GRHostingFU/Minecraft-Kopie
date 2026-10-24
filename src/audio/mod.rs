@@ -331,7 +331,9 @@ mod tests {
             Sound::Fire,
             Sound::Bones,
         ];
-        for id in [BlockId::GRASS, BlockId::STONE, BlockId::LOG, BlockId::SNOW, BlockId::LEAVES, BlockId::SAND, BlockId::DIRT] {
+        for id in
+            [BlockId::GRASS, BlockId::STONE, BlockId::LOG, BlockId::SNOW, BlockId::LEAVES, BlockId::SAND, BlockId::DIRT]
+        {
             sounds.extend([Sound::Step(id), Sound::Dig(id), Sound::Break(id), Sound::Place(id)]);
         }
         for s in sounds {

@@ -602,7 +602,11 @@ mod tests {
         sim.notify(p(0, 1, 0));
         sim.run(&mut w, 5);
         assert_eq!(w.at(p(1, 1, 0)), BlockId::dust(15));
-        assert_eq!(w.at(p(2, 1, 1)), BlockId::piston(false, Facing::Up, true), "the piston is powered through the block");
+        assert_eq!(
+            w.at(p(2, 1, 1)),
+            BlockId::piston(false, Facing::Up, true),
+            "the piston is powered through the block"
+        );
         assert_eq!(w.at(p(3, 1, 0)), BlockId::dust(0), "dust never powers dust through a block");
     }
 

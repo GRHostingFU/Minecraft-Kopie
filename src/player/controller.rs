@@ -342,7 +342,8 @@ pub fn step_player<W: BlockQuery>(
     let wish2 = Vec2::new(wish.x, wish.z);
 
     let body = Body::player(*pos);
-    let contact = if flying { FluidContact::default() } else { body_contact(world, *pos, body.half_width, body.height) };
+    let contact =
+        if flying { FluidContact::default() } else { body_contact(world, *pos, body.half_width, body.height) };
     let swimming = contact.any();
     let in_lava = contact.lava;
     let on_ground_probe = standing_on(world, &body, 0.02);
@@ -362,7 +363,14 @@ pub fn step_player<W: BlockQuery>(
         } else {
             WALK_SPEED
         };
-        let speed = base * if in_lava { 0.3 } else if swimming { 0.55 } else { 1.0 };
+        let speed = base
+            * if in_lava {
+                0.3
+            } else if swimming {
+                0.55
+            } else {
+                1.0
+            };
         let mut target = wish2 * speed;
         if swimming {
             // Currents carry the swimmer along; lava is thick and barely moves.
@@ -424,13 +432,7 @@ pub fn step_player<W: BlockQuery>(
             vel.y = vel.y.max(if in_lava { 4.0 } else { 6.2 });
         }
     }
-    StepResult {
-        on_ground: res.on_ground,
-        swimming,
-        in_lava,
-        hit_horizontal: res.hit_x || res.hit_z,
-        edge_guarded,
-    }
+    StepResult { on_ground: res.on_ground, swimming, in_lava, hit_horizontal: res.hit_x || res.hit_z, edge_guarded }
 }
 
 fn player_physics(

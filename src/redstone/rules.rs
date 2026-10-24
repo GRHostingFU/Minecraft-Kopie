@@ -12,11 +12,7 @@ pub type DustArms = [Option<i8>; 4];
 fn is_wire_partner(b: BlockId) -> bool {
     matches!(
         b.kind(),
-        Kind::Dust { .. }
-            | Kind::Torch { .. }
-            | Kind::Lever { .. }
-            | Kind::Button { .. }
-            | Kind::Plate { .. }
+        Kind::Dust { .. } | Kind::Torch { .. } | Kind::Lever { .. } | Kind::Button { .. } | Kind::Plate { .. }
     )
 }
 

@@ -89,7 +89,13 @@ fn run_redstone(
     // The cells that currently hold a body (feet cell), computed once per frame.
     let occupied: HashSet<IVec3> = bodies
         .iter()
-        .map(|(t, _)| IVec3::new(t.translation.x.floor() as i32, (t.translation.y + 0.01).floor() as i32, t.translation.z.floor() as i32))
+        .map(|(t, _)| {
+            IVec3::new(
+                t.translation.x.floor() as i32,
+                (t.translation.y + 0.01).floor() as i32,
+                t.translation.z.floor() as i32,
+            )
+        })
         .collect();
     let mut ticks = 0;
     while clock.0 >= step && ticks < MAX_TICKS_PER_FRAME {

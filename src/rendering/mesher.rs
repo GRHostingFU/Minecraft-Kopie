@@ -193,11 +193,7 @@ fn greedy(vol: &PaddedVolume, layer: Layer, out: &mut MeshBuffers) {
                         let (b, nb) = (vol.get(p[0], p[1], p[2]), vol.get(n[0], n[1], n[2]));
                         mask[v * du + u] = if face_visible(layer, b, nb) {
                             any = true;
-                            Some(FaceKey {
-                                block: b,
-                                ao: corner_ao(vol, n, ua, va),
-                                sky: vol.sky_light(n),
-                            })
+                            Some(FaceKey { block: b, ao: corner_ao(vol, n, ua, va), sky: vol.sky_light(n) })
                         } else {
                             None
                         };
@@ -325,7 +321,8 @@ fn emit_quad(
         }
     };
 
-    let tile = (key.block.tile_facing(facing_for(axis, positive)) + if key.block.is_emissive() { tile::EMISSIVE } else { 0 }) as f32;
+    let tile = (key.block.tile_facing(facing_for(axis, positive))
+        + if key.block.is_emissive() { tile::EMISSIVE } else { 0 }) as f32;
     let shade = face_shade(axis, positive);
     let sky = key.sky as f32 / MAX_SKY as f32;
     let mut normal = [0f32; 3];

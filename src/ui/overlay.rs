@@ -72,7 +72,10 @@ fn update_overlays(
     cam: Query<&GlobalTransform, With<PlayerCamera>>,
     mut fluid: Query<&mut BackgroundColor, (With<FluidTint>, Without<HurtTint>)>,
     mut hurt: Query<&mut BackgroundColor, (With<HurtTint>, Without<FluidTint>)>,
-    mut death: Query<(&mut Visibility, &mut BackgroundColor), (With<DeathScreen>, Without<FluidTint>, Without<HurtTint>)>,
+    mut death: Query<
+        (&mut Visibility, &mut BackgroundColor),
+        (With<DeathScreen>, Without<FluidTint>, Without<HurtTint>),
+    >,
 ) {
     let playing = *screen == Screen::Playing || *screen == Screen::Inventory;
     if let Ok(mut bg) = fluid.single_mut() {

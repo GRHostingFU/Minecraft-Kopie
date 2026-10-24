@@ -1,8 +1,8 @@
 //! How fluids act on bodies: whether a body is submerged and which way the water pushes it.
 
 use super::sim::FluidKind;
-use crate::world::block::{FALLING, Facing};
 use crate::world::BlockQuery;
+use crate::world::block::{FALLING, Facing};
 use bevy::math::{IVec3, Vec3};
 
 /// Surface height of a fluid cell as a fraction of a block (sources are slightly lower than

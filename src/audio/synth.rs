@@ -138,8 +138,15 @@ pub enum Material {
 }
 
 impl Material {
-    pub const ALL: [Material; 7] =
-        [Material::Grass, Material::Dirt, Material::Sand, Material::Stone, Material::Wood, Material::Snow, Material::Leaves];
+    pub const ALL: [Material; 7] = [
+        Material::Grass,
+        Material::Dirt,
+        Material::Sand,
+        Material::Stone,
+        Material::Wood,
+        Material::Snow,
+        Material::Leaves,
+    ];
 
     /// (noise filter kind, centre frequency, resonance, body decay seconds, thump frequency, noise level)
     fn voice(self) -> (FilterKind, f32, f32, f32, f32, f32) {
@@ -192,7 +199,9 @@ pub fn dig(material: Material, variant: u32) -> Vec<f32> {
 pub fn break_block(material: Material, variant: u32) -> Vec<f32> {
     let mut rng = Rng::new(0xB4E4 + variant * 1237 + material as u32 * 9973);
     let mut out = vec![0.0; (0.34 * SR) as usize];
-    for (i, (delay, gain, pitch)) in [(0.0, 1.0, 0.85), (0.045, 0.8, 1.0), (0.10, 0.6, 1.15), (0.17, 0.4, 0.95)].into_iter().enumerate() {
+    for (i, (delay, gain, pitch)) in
+        [(0.0, 1.0, 0.85), (0.045, 0.8, 1.0), (0.10, 0.6, 1.15), (0.17, 0.4, 0.95)].into_iter().enumerate()
+    {
         let hit = impact(material, 0.16, pitch + 0.03 * i as f32, gain, &mut rng);
         let start = (delay * SR) as usize;
         for (j, v) in hit.iter().enumerate() {
@@ -407,7 +416,9 @@ pub fn fire() -> Vec<f32> {
 /// Dry bones knocking together.
 pub fn bones() -> Vec<f32> {
     let mut rng = Rng::new(0xB07E5);
-    let hits: Vec<(f32, f32, f32)> = (0..5).map(|i| (i as f32 * 0.05 + rng.range(0.0, 0.03), rng.range(1800.0, 3200.0), rng.range(0.4, 1.0))).collect();
+    let hits: Vec<(f32, f32, f32)> = (0..5)
+        .map(|i| (i as f32 * 0.05 + rng.range(0.0, 0.03), rng.range(1800.0, 3200.0), rng.range(0.4, 1.0)))
+        .collect();
     let out = render(0.4, |t, _| {
         let mut v = 0.0;
         for &(start, f, g) in &hits {

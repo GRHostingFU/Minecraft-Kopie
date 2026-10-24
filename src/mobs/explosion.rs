@@ -83,7 +83,14 @@ pub struct BlastEffect {
 /// What an explosion of `power` at `center` does to a box-shaped body at `feet` (width `w`,
 /// height `h`). Falls off linearly to nothing at twice the power, scaled by how much of the body
 /// the blast can "see" (walls shelter).
-pub fn blast_effect<W: BlockQuery>(w: &W, center: Vec3, power: f32, feet: Vec3, width: f32, height: f32) -> Option<BlastEffect> {
+pub fn blast_effect<W: BlockQuery>(
+    w: &W,
+    center: Vec3,
+    power: f32,
+    feet: Vec3,
+    width: f32,
+    height: f32,
+) -> Option<BlastEffect> {
     let mid = feet + Vec3::new(0.0, height * 0.5, 0.0);
     let dist = mid.distance(center);
     let reach = power * 2.0;
@@ -175,7 +182,10 @@ mod tests {
             }
         }
         let removed = detonate(&mut w, Vec3::new(0.5, 20.5, 0.5), 3.0, 3);
-        assert!(removed.iter().all(|c| c.x.abs() <= 2 && (c.y - 20).abs() <= 2 && c.z.abs() <= 2), "contained by the water shell");
+        assert!(
+            removed.iter().all(|c| c.x.abs() <= 2 && (c.y - 20).abs() <= 2 && c.z.abs() <= 2),
+            "contained by the water shell"
+        );
     }
 
     #[test]

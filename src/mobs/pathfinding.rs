@@ -58,9 +58,10 @@ pub fn standable<W: BlockQuery>(w: &W, p: IVec3, h: i32) -> bool {
 
 /// First standable cell at or below `p` (searching at most `depth` cells down), or above.
 pub fn snap_to_ground<W: BlockQuery>(w: &W, p: IVec3, h: i32, depth: i32) -> Option<IVec3> {
-    (0..=depth).map(|d| p - IVec3::new(0, d, 0)).find(|c| standable(w, *c, h)).or_else(|| {
-        (1..=2).map(|d| p + IVec3::new(0, d, 0)).find(|c| standable(w, *c, h))
-    })
+    (0..=depth)
+        .map(|d| p - IVec3::new(0, d, 0))
+        .find(|c| standable(w, *c, h))
+        .or_else(|| (1..=2).map(|d| p + IVec3::new(0, d, 0)).find(|c| standable(w, *c, h)))
 }
 
 struct Node {
@@ -106,7 +107,10 @@ fn neighbours<W: BlockQuery>(w: &W, p: IVec3, h: i32, out: &mut Vec<(IVec3, f32)
         } else {
             // Step up one block (needs headroom above the start for the jump).
             let up = n + IVec3::Y;
-            if standable(w, up, h) && passable_cell(w, p + IVec3::new(0, h, 0)) && w.block(n).is_some_and(|b| b.is_solid()) {
+            if standable(w, up, h)
+                && passable_cell(w, p + IVec3::new(0, h, 0))
+                && w.block(n).is_some_and(|b| b.is_solid())
+            {
                 out.push((up, 1.6));
             } else if (0..h).all(|dy| passable_cell(w, n + IVec3::new(0, dy, 0))) {
                 // Walk off an edge and fall up to MAX_DROP blocks.
@@ -124,7 +128,12 @@ fn neighbours<W: BlockQuery>(w: &W, p: IVec3, h: i32, out: &mut Vec<(IVec3, f32)
         }
     }
     // Diagonals on the same level, only if both orthogonal neighbours are free (no corner cutting).
-    for (a, b) in [(Facing::North, Facing::East), (Facing::North, Facing::West), (Facing::South, Facing::East), (Facing::South, Facing::West)] {
+    for (a, b) in [
+        (Facing::North, Facing::East),
+        (Facing::North, Facing::West),
+        (Facing::South, Facing::East),
+        (Facing::South, Facing::West),
+    ] {
         let (da, db) = (a.offset(), b.offset());
         let n = p + da + db;
         let free = |c: IVec3| (0..h).all(|dy| passable_cell(w, c + IVec3::new(0, dy, 0)));
@@ -212,7 +221,10 @@ fn smooth<W: BlockQuery>(w: &W, start: IVec3, cells: Vec<IVec3>, h: i32) -> Vec<
         // Farthest later cell that can be walked to in a straight line from the anchor.
         let mut j = i;
         for k in (i + 1)..cells.len().min(i + 16) {
-            if cells[k].y == anchor.y && cells[i..=k].iter().all(|c| c.y == anchor.y) && line_walkable(w, anchor, cells[k], h) {
+            if cells[k].y == anchor.y
+                && cells[i..=k].iter().all(|c| c.y == anchor.y)
+                && line_walkable(w, anchor, cells[k], h)
+            {
                 j = k;
             }
         }
@@ -225,7 +237,8 @@ fn smooth<W: BlockQuery>(w: &W, start: IVec3, cells: Vec<IVec3>, h: i32) -> Vec<
 
 /// Is the straight segment between the centres of two cells on the same level walkable?
 fn line_walkable<W: BlockQuery>(w: &W, a: IVec3, b: IVec3, h: i32) -> bool {
-    let (pa, pb) = (Vec3::new(a.x as f32 + 0.5, 0.0, a.z as f32 + 0.5), Vec3::new(b.x as f32 + 0.5, 0.0, b.z as f32 + 0.5));
+    let (pa, pb) =
+        (Vec3::new(a.x as f32 + 0.5, 0.0, a.z as f32 + 0.5), Vec3::new(b.x as f32 + 0.5, 0.0, b.z as f32 + 0.5));
     let len = pa.distance(pb);
     let steps = (len / 0.25).ceil().max(1.0) as i32;
     (0..=steps).all(|s| {
@@ -270,7 +283,11 @@ mod tests {
             if p.x.abs() > 100 || p.z.abs() > 100 {
                 return None;
             }
-            Some(self.blocks.get(&p).copied().unwrap_or(if self.floor && p.y <= 0 { BlockId::STONE } else { BlockId::AIR }))
+            Some(self.blocks.get(&p).copied().unwrap_or(if self.floor && p.y <= 0 {
+                BlockId::STONE
+            } else {
+                BlockId::AIR
+            }))
         }
     }
 

@@ -26,7 +26,8 @@ pub mod mob_tile {
 }
 
 fn hash(x: i32, y: i32, salt: u32) -> u32 {
-    let mut h = (x as u32).wrapping_mul(0x85EB_CA6B) ^ (y as u32).wrapping_mul(0xC2B2_AE35) ^ salt.wrapping_mul(0x27D4_EB2F);
+    let mut h =
+        (x as u32).wrapping_mul(0x85EB_CA6B) ^ (y as u32).wrapping_mul(0xC2B2_AE35) ^ salt.wrapping_mul(0x27D4_EB2F);
     h ^= h >> 15;
     h = h.wrapping_mul(0x2C1B_3C6D);
     h ^= h >> 12;
@@ -164,7 +165,9 @@ pub fn boxes_mesh(boxes: &[BoxSpec]) -> Mesh {
             let c = centre + *n * (half * n.abs()).length();
             let (hu, hv) = ((half * u.abs()).length(), (half * v.abs()).length());
             let base = pos.len() as u32;
-            for (su, sv, tu, tv) in [(-1.0, -1.0, 0.0, 1.0), (1.0, -1.0, 1.0, 1.0), (1.0, 1.0, 1.0, 0.0), (-1.0, 1.0, 0.0, 0.0)] {
+            for (su, sv, tu, tv) in
+                [(-1.0, -1.0, 0.0, 1.0), (1.0, -1.0, 1.0, 1.0), (1.0, 1.0, 1.0, 0.0), (-1.0, 1.0, 0.0, 0.0)]
+            {
                 let p = c + *u * hu * su + *v * hv * sv;
                 pos.push(p.to_array());
                 nor.push(n.to_array());
@@ -206,13 +209,11 @@ fn v(x: f32, y: f32, z: f32) -> Vec3 {
 /// The creeper: a tall body on four stubby legs with a big head. 26 px (1.625 blocks) tall.
 pub fn creeper_parts() -> Vec<PartSpec> {
     let skin = mob_tile::CREEPER_SKIN;
-    let mut parts = vec![
-        PartSpec {
-            kind: PartKind::Head,
-            pivot: v(0.0, 18.0, 0.0) * PX,
-            boxes: vec![BoxSpec::all(v(-4.0, 0.0, -4.0), v(4.0, 8.0, 4.0), skin).with_front(mob_tile::CREEPER_FACE)],
-        },
-    ];
+    let mut parts = vec![PartSpec {
+        kind: PartKind::Head,
+        pivot: v(0.0, 18.0, 0.0) * PX,
+        boxes: vec![BoxSpec::all(v(-4.0, 0.0, -4.0), v(4.0, 8.0, 4.0), skin).with_front(mob_tile::CREEPER_FACE)],
+    }];
     parts.push(PartSpec {
         kind: PartKind::Torso,
         pivot: v(0.0, 6.0, 0.0) * PX,
@@ -292,7 +293,12 @@ impl MobMaterials {
     pub fn new(images: &mut Assets<Image>, materials: &mut Assets<StandardMaterial>) -> Self {
         let atlas = images.add(build_atlas_image());
         let mut textured = |color: Color| {
-            materials.add(StandardMaterial { base_color: color, base_color_texture: Some(atlas.clone()), unlit: true, ..default() })
+            materials.add(StandardMaterial {
+                base_color: color,
+                base_color_texture: Some(atlas.clone()),
+                unlit: true,
+                ..default()
+            })
         };
         let normal = textured(Color::WHITE);
         let hurt = textured(Color::srgb(1.0, 0.35, 0.35));
@@ -358,7 +364,8 @@ mod tests {
             assert!((n - Vec3::from(nor[t[0] as usize])).length() < 1e-4, "winding disagrees with normal");
         }
         // Size: 8 px wide, centred on x = 0, standing on y = 0.
-        let (lo, hi) = pos.iter().fold((Vec3::MAX, Vec3::MIN), |(lo, hi), p| (lo.min(Vec3::from(*p)), hi.max(Vec3::from(*p))));
+        let (lo, hi) =
+            pos.iter().fold((Vec3::MAX, Vec3::MIN), |(lo, hi), p| (lo.min(Vec3::from(*p)), hi.max(Vec3::from(*p))));
         assert!((hi - lo - v(8.0, 8.0, 8.0) * PX).length() < 1e-5);
         assert!((lo.x + hi.x).abs() < 1e-6 && lo.y.abs() < 1e-6);
     }
@@ -366,7 +373,10 @@ mod tests {
     #[test]
     fn model_heights_match_the_hitboxes() {
         let top = |parts: &[PartSpec]| {
-            parts.iter().map(|p| p.pivot.y + p.boxes.iter().map(|b| b.max.y * PX).fold(f32::MIN, f32::max)).fold(f32::MIN, f32::max)
+            parts
+                .iter()
+                .map(|p| p.pivot.y + p.boxes.iter().map(|b| b.max.y * PX).fold(f32::MIN, f32::max))
+                .fold(f32::MIN, f32::max)
         };
         assert!((top(&creeper_parts()) - 26.0 * PX).abs() < 1e-5);
         assert!((top(&skeleton_parts()) - 32.0 * PX).abs() < 1e-5);

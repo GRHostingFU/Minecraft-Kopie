@@ -35,13 +35,10 @@ pub struct InteractionPlugin;
 
 impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Target>()
-            .init_resource::<ActionCooldown>()
-            .add_message::<HandSwing>()
-            .add_systems(
-                Update,
-                (hotbar_input, update_target, update_mob_target, block_actions, attack_mobs, draw_highlight).chain(),
-            );
+        app.init_resource::<Target>().init_resource::<ActionCooldown>().add_message::<HandSwing>().add_systems(
+            Update,
+            (hotbar_input, update_target, update_mob_target, block_actions, attack_mobs, draw_highlight).chain(),
+        );
     }
 }
 

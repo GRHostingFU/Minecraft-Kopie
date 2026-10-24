@@ -56,8 +56,8 @@ pub fn burns_in_sun<W: BlockQuery>(w: &W, feet: bevy::math::Vec3, height: f32, d
         return false;
     }
     let head = IVec3::new(feet.x.floor() as i32, (feet.y + height).floor() as i32, feet.z.floor() as i32);
-    let in_water = w.block(feet.floor().as_ivec3()).is_some_and(BlockId::is_water)
-        || w.block(head).is_some_and(BlockId::is_water);
+    let in_water =
+        w.block(feet.floor().as_ivec3()).is_some_and(BlockId::is_water) || w.block(head).is_some_and(BlockId::is_water);
     !in_water && sky_exposed(w, head)
 }
 

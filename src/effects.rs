@@ -28,7 +28,9 @@ impl ParticleAssets {
         let key = ((r * 255.0) as u32) << 16 | ((g * 255.0) as u32) << 8 | (b * 255.0) as u32;
         self.materials
             .entry(key)
-            .or_insert_with(|| materials.add(StandardMaterial { base_color: Color::srgb(r, g, b), unlit: true, ..default() }))
+            .or_insert_with(|| {
+                materials.add(StandardMaterial { base_color: Color::srgb(r, g, b), unlit: true, ..default() })
+            })
             .clone()
     }
 }
@@ -114,7 +116,9 @@ pub fn spawn_debris(
     let mesh = assets.mesh.get_or_insert_with(|| meshes.add(Cuboid::new(0.12, 0.12, 0.12))).clone();
     let material = assets.material(materials, id.base_color());
     let mut s = Scatter::new(
-        (block.x as u32).wrapping_mul(73856093) ^ (block.y as u32).wrapping_mul(19349663) ^ (block.z as u32).wrapping_mul(83492791),
+        (block.x as u32).wrapping_mul(73856093)
+            ^ (block.y as u32).wrapping_mul(19349663)
+            ^ (block.z as u32).wrapping_mul(83492791),
     );
     for _ in 0..10 {
         let offset = Vec3::new(s.unit(), s.unit(), s.unit());
@@ -150,7 +154,12 @@ fn spawn_bursts(
             alive += 1;
             let dir = Vec3::new(s.unit() - 0.5, s.unit() - 0.3, s.unit() - 0.5).normalize_or_zero();
             commands.spawn((
-                Particle { vel: dir * b.speed * (0.4 + s.unit() * 0.6), life: b.life * (0.6 + s.unit() * 0.4), gravity: 6.0, size: 0.8 + s.unit() * 1.4 },
+                Particle {
+                    vel: dir * b.speed * (0.4 + s.unit() * 0.6),
+                    life: b.life * (0.6 + s.unit() * 0.4),
+                    gravity: 6.0,
+                    size: 0.8 + s.unit() * 1.4,
+                },
                 Mesh3d(mesh.clone()),
                 MeshMaterial3d(material.clone()),
                 Transform::from_translation(b.center + dir * 0.2),
@@ -183,7 +192,10 @@ fn spawn_flashes(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for f in requests.read() {
-        let mesh = assets.sphere.get_or_insert_with(|| meshes.add(Sphere::new(1.0).mesh().ico(2).expect("ico sphere"))).clone();
+        let mesh = assets
+            .sphere
+            .get_or_insert_with(|| meshes.add(Sphere::new(1.0).mesh().ico(2).expect("ico sphere")))
+            .clone();
         let material = materials.add(StandardMaterial {
             base_color: Color::srgba(1.0, 0.8, 0.4, 0.9),
             unlit: true,

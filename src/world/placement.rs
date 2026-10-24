@@ -42,7 +42,10 @@ mod tests {
         // Placed against the east face of a block: the block is to the west.
         let wall = placement_state(BlockId::LEVER, IVec3::X, Vec3::NEG_X);
         assert_eq!(wall, Some(BlockId::lever(Facing::West, false)));
-        assert_eq!(placement_state(BlockId::STONE_BUTTON, IVec3::NEG_Z, Vec3::Z), Some(BlockId::button(Facing::South, false)));
+        assert_eq!(
+            placement_state(BlockId::STONE_BUTTON, IVec3::NEG_Z, Vec3::Z),
+            Some(BlockId::button(Facing::South, false))
+        );
         assert_eq!(placement_state(BlockId::REDSTONE_TORCH, IVec3::NEG_Y, Vec3::Y), None, "no ceiling torches");
     }
 

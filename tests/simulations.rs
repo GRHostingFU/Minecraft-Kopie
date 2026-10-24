@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use minecraft_kopie::physics::fluids::FluidPlugin;
 use minecraft_kopie::redstone::{PressesPlates, RedstonePlugin, RedstoneSimulation};
-use minecraft_kopie::world::block::{BlockId, Facing, FALLING};
+use minecraft_kopie::world::block::{BlockId, FALLING, Facing};
 use minecraft_kopie::world::streaming::{ChunkStreamingPlugin, WorldSettings};
 use minecraft_kopie::world::{BlockQuery, Chunk, VoxelWorld};
 use std::time::Duration;

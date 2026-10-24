@@ -5,10 +5,10 @@ use super::widgets::{SlotView, TEXT_DIM, spawn_slot, text_font};
 use crate::inventory::{HOTBAR_SLOTS, Inventory};
 use crate::mobs::Mob;
 use crate::physics::fluids::FluidSimulation;
-use crate::redstone::RedstoneSimulation;
 use crate::player::controller::Player;
 use crate::player::health::{Health, MAX_HEALTH, armor_points};
 use crate::player::interaction::Target;
+use crate::redstone::RedstoneSimulation;
 use crate::rendering::AtlasHandle;
 use crate::rendering::chunk_mesh::MeshState;
 use crate::rendering::sky::TimeOfDay;
@@ -117,35 +117,40 @@ fn spawn_hud(mut commands: Commands, atlas: Res<AtlasHandle>) {
                 ..default()
             })
             .with_children(|wrap| {
-                wrap.spawn(Node { width: Val::Px(hotbar_width), flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), ..default() })
-                    .with_children(|col| {
-                        col.spawn((ArmorText, Text::new(""), text_font(13.0), TextColor(Color::srgb(0.75, 0.82, 0.95))));
-                        col.spawn(Node { column_gap: Val::Px(2.0), ..default() }).with_children(|row| {
-                            for i in 0..10 {
-                                row.spawn((
+                wrap.spawn(Node {
+                    width: Val::Px(hotbar_width),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(3.0),
+                    ..default()
+                })
+                .with_children(|col| {
+                    col.spawn((ArmorText, Text::new(""), text_font(13.0), TextColor(Color::srgb(0.75, 0.82, 0.95))));
+                    col.spawn(Node { column_gap: Val::Px(2.0), ..default() }).with_children(|row| {
+                        for i in 0..10 {
+                            row.spawn((
+                                Node {
+                                    width: Val::Px(HEART),
+                                    height: Val::Px(HEART),
+                                    border_radius: BorderRadius::all(Val::Px(4.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(Color::srgba(0.12, 0.02, 0.02, 0.85)),
+                            ))
+                            .with_children(|h| {
+                                h.spawn((
+                                    HeartFill(i),
                                     Node {
-                                        width: Val::Px(HEART),
-                                        height: Val::Px(HEART),
+                                        width: Val::Percent(100.0),
+                                        height: Val::Percent(100.0),
                                         border_radius: BorderRadius::all(Val::Px(4.0)),
                                         ..default()
                                     },
-                                    BackgroundColor(Color::srgba(0.12, 0.02, 0.02, 0.85)),
-                                ))
-                                .with_children(|h| {
-                                    h.spawn((
-                                        HeartFill(i),
-                                        Node {
-                                            width: Val::Percent(100.0),
-                                            height: Val::Percent(100.0),
-                                            border_radius: BorderRadius::all(Val::Px(4.0)),
-                                            ..default()
-                                        },
-                                        BackgroundColor(Color::srgb(0.85, 0.1, 0.12)),
-                                    ));
-                                });
-                            }
-                        });
+                                    BackgroundColor(Color::srgb(0.85, 0.1, 0.12)),
+                                ));
+                            });
+                        }
                     });
+                });
             });
 
             // The item name floats above the hotbar; the wrapper centres it.

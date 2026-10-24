@@ -285,7 +285,8 @@ impl FluidSim {
     /// Is `n` open and can fluid fall out of it (air or something it can replace below)?
     fn is_drop<W: BlockQuery>(w: &W, n: IVec3, kind: FluidKind) -> bool {
         w.block(n).is_some_and(|b| Self::passable(b, kind))
-            && w.block(n - IVec3::Y).is_some_and(|b| b.is_air() || b.is_fragile() || FluidKind::of(b).is_some_and(|(k, _)| k != kind))
+            && w.block(n - IVec3::Y)
+                .is_some_and(|b| b.is_air() || b.is_fragile() || FluidKind::of(b).is_some_and(|(k, _)| k != kind))
     }
 
     /// Steps (1..4) to the nearest drop when walking on from `from`, which was entered by moving
@@ -343,7 +344,11 @@ pub(crate) mod tests {
             if p.x.abs() > 40 || p.z.abs() > 40 || p.y > 100 {
                 return None;
             }
-            Some(self.blocks.get(&p).copied().unwrap_or(if p.y <= 0 && self.floor { BlockId::STONE } else { BlockId::AIR }))
+            Some(self.blocks.get(&p).copied().unwrap_or(if p.y <= 0 && self.floor {
+                BlockId::STONE
+            } else {
+                BlockId::AIR
+            }))
         }
     }
 

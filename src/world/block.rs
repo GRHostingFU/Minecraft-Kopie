@@ -193,14 +193,36 @@ pub enum Kind {
     /// Fluid state `0..=FALLING`.
     Water(u8),
     Lava(u8),
-    Dust { power: u8 },
-    Torch { attach: Facing, lit: bool },
-    Lever { attach: Facing, on: bool },
-    Plate { pressed: bool },
-    Button { attach: Facing, pressed: bool },
-    Piston { sticky: bool, facing: Facing, extended: bool },
-    PistonHead { sticky: bool, facing: Facing },
-    Lamp { lit: bool },
+    Dust {
+        power: u8,
+    },
+    Torch {
+        attach: Facing,
+        lit: bool,
+    },
+    Lever {
+        attach: Facing,
+        on: bool,
+    },
+    Plate {
+        pressed: bool,
+    },
+    Button {
+        attach: Facing,
+        pressed: bool,
+    },
+    Piston {
+        sticky: bool,
+        facing: Facing,
+        extended: bool,
+    },
+    PistonHead {
+        sticky: bool,
+        facing: Facing,
+    },
+    Lamp {
+        lit: bool,
+    },
 }
 
 const fn decode(id: u8) -> Kind {
@@ -265,11 +287,9 @@ const fn flags_of(id: u8) -> u8 {
             }
         }
         Kind::Water(_) | Kind::Lava(_) => F_FLUID | F_REPLACEABLE | F_KNOWN,
-        Kind::Dust { .. }
-        | Kind::Torch { .. }
-        | Kind::Lever { .. }
-        | Kind::Plate { .. }
-        | Kind::Button { .. } => F_MODEL | F_BREAKABLE | F_KNOWN,
+        Kind::Dust { .. } | Kind::Torch { .. } | Kind::Lever { .. } | Kind::Plate { .. } | Kind::Button { .. } => {
+            F_MODEL | F_BREAKABLE | F_KNOWN
+        }
         Kind::PistonHead { .. } => F_MODEL | F_SOLID | F_BREAKABLE | F_KNOWN,
         Kind::Piston { .. } | Kind::Lamp { .. } => F_OPAQUE | F_SOLID | F_BREAKABLE | F_KNOWN,
     }
@@ -641,7 +661,6 @@ const fn attach_slot(f: Facing) -> u8 {
     }
 }
 
-
 const PX: f32 = 1.0 / 16.0;
 
 /// Maps a box given in the "support frame" of an attached part to cell coordinates. `w` runs
@@ -658,12 +677,17 @@ pub fn from_support_frame(support: Facing, a: f32, b: f32, w: f32) -> bevy::math
 }
 
 /// Box `a0..a1, b0..b1, w0..w1` in the support frame, translated to the cell at `origin`.
-pub fn framed_box(origin: bevy::math::Vec3, support: Facing, a: (f32, f32), b: (f32, f32), w: (f32, f32)) -> (bevy::math::Vec3, bevy::math::Vec3) {
+pub fn framed_box(
+    origin: bevy::math::Vec3,
+    support: Facing,
+    a: (f32, f32),
+    b: (f32, f32),
+    w: (f32, f32),
+) -> (bevy::math::Vec3, bevy::math::Vec3) {
     let p = from_support_frame(support, a.0, b.0, w.0);
     let q = from_support_frame(support, a.1, b.1, w.1);
     (origin + p.min(q), origin + p.max(q))
 }
-
 
 /// Bounding box (cell-local, `min`, `max`) used for crosshair selection of a model block.
 pub fn select_box(id: BlockId) -> (bevy::math::Vec3, bevy::math::Vec3) {
@@ -671,7 +695,9 @@ pub fn select_box(id: BlockId) -> (bevy::math::Vec3, bevy::math::Vec3) {
     let o = Vec3::ZERO;
     match id.kind() {
         Kind::Dust { .. } => (o, Vec3::new(1.0, PX, 1.0)),
-        Kind::Plate { pressed } => (Vec3::new(PX, 0.0, PX), Vec3::new(15.0 * PX, if pressed { 0.5 * PX } else { PX }, 15.0 * PX)),
+        Kind::Plate { pressed } => {
+            (Vec3::new(PX, 0.0, PX), Vec3::new(15.0 * PX, if pressed { 0.5 * PX } else { PX }, 15.0 * PX))
+        }
         Kind::Torch { attach, .. } => {
             if attach == Facing::Down {
                 (Vec3::new(6.0 * PX, 0.0, 6.0 * PX), Vec3::new(10.0 * PX, 10.0 * PX, 10.0 * PX))
@@ -679,10 +705,16 @@ pub fn select_box(id: BlockId) -> (bevy::math::Vec3, bevy::math::Vec3) {
                 framed_box(o, attach, (3.0 * PX, 13.0 * PX), (6.0 * PX, 10.0 * PX), (5.0 * PX, 8.0 * PX))
             }
         }
-        Kind::Lever { attach, .. } => framed_box(o, attach, (3.0 * PX, 13.0 * PX), (5.0 * PX, 11.0 * PX), (0.0, 11.0 * PX)),
-        Kind::Button { attach, pressed } => {
-            framed_box(o, attach, (5.0 * PX, 11.0 * PX), (6.0 * PX, 10.0 * PX), (0.0, if pressed { PX } else { 2.0 * PX }))
+        Kind::Lever { attach, .. } => {
+            framed_box(o, attach, (3.0 * PX, 13.0 * PX), (5.0 * PX, 11.0 * PX), (0.0, 11.0 * PX))
         }
+        Kind::Button { attach, pressed } => framed_box(
+            o,
+            attach,
+            (5.0 * PX, 11.0 * PX),
+            (6.0 * PX, 10.0 * PX),
+            (0.0, if pressed { PX } else { 2.0 * PX }),
+        ),
         _ => (o, Vec3::ONE),
     }
 }

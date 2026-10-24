@@ -6,8 +6,8 @@
 
 use super::pathfinding::{PathOptions, find_path};
 use super::{
-    ARROW_GRAVITY, ARROW_SPEED, Brain, CREEPER_ABORT_DISTANCE, CREEPER_FUSE_SECS, CREEPER_IGNITE_DISTANCE, CREEPER_POWER, Creeper, Explode,
-    Mob, MobAssets, MobKind, PathBudget, Skeleton, next_rand, spawn_arrow,
+    ARROW_GRAVITY, ARROW_SPEED, Brain, CREEPER_ABORT_DISTANCE, CREEPER_FUSE_SECS, CREEPER_IGNITE_DISTANCE,
+    CREEPER_POWER, Creeper, Explode, Mob, MobAssets, MobKind, PathBudget, Skeleton, next_rand, spawn_arrow,
 };
 use crate::audio::{PlaySound, Sound};
 use crate::physics::raycast::raycast;
@@ -56,7 +56,16 @@ fn follow(brain: &mut Brain, pos: Vec3, speed: f32) -> Vec2 {
 
 /// Chases `goal` along a planned route. Searches are rationed by `budget`.
 #[allow(clippy::too_many_arguments)]
-fn steer<W: BlockQuery>(brain: &mut Brain, world: &W, budget: &mut u32, pos: Vec3, goal: IVec3, speed: f32, dt: f32, rng: &mut u32) -> Vec2 {
+fn steer<W: BlockQuery>(
+    brain: &mut Brain,
+    world: &W,
+    budget: &mut u32,
+    pos: Vec3,
+    goal: IVec3,
+    speed: f32,
+    dt: f32,
+    rng: &mut u32,
+) -> Vec2 {
     brain.repath -= dt;
     brain.stuck += dt;
     if brain.stuck >= 1.0 {
@@ -68,7 +77,8 @@ fn steer<W: BlockQuery>(brain: &mut Brain, world: &W, budget: &mut u32, pos: Vec
         brain.last_pos = pos;
         brain.stuck = 0.0;
     }
-    let goal_moved = brain.goal.is_none_or(|g| (g.x - goal.x).abs() + (g.z - goal.z).abs() > 2 || (g.y - goal.y).abs() > 2);
+    let goal_moved =
+        brain.goal.is_none_or(|g| (g.x - goal.x).abs() + (g.z - goal.z).abs() > 2 || (g.y - goal.y).abs() > 2);
     let path_done = brain.path_index >= brain.path.len();
     if (goal_moved || path_done || brain.repath <= 0.0) && *budget > 0 {
         *budget -= 1;
@@ -96,7 +106,15 @@ fn steer<W: BlockQuery>(brain: &mut Brain, world: &W, budget: &mut u32, pos: Vec
 
 /// Aimless walking: pick a nearby cell, walk there, rest, repeat.
 #[allow(clippy::too_many_arguments)]
-fn wander<W: BlockQuery>(brain: &mut Brain, world: &W, budget: &mut u32, pos: Vec3, speed: f32, dt: f32, rng: &mut u32) -> Vec2 {
+fn wander<W: BlockQuery>(
+    brain: &mut Brain,
+    world: &W,
+    budget: &mut u32,
+    pos: Vec3,
+    speed: f32,
+    dt: f32,
+    rng: &mut u32,
+) -> Vec2 {
     brain.wander_wait -= dt;
     if brain.wander_goal.is_none() {
         if brain.wander_wait > 0.0 {
@@ -280,7 +298,10 @@ pub fn skeleton_brain(
                         let lifted = aim_point + Vec3::Y * 0.5 * ARROW_GRAVITY * flight * flight;
                         let mut dir = (lifted - origin).normalize_or_zero();
                         let spread = 0.012 * (dist / 8.0).clamp(0.5, 2.0);
-                        dir += Vec3::new(next_rand(&mut rng) - 0.5, next_rand(&mut rng) - 0.5, next_rand(&mut rng) - 0.5) * 2.0 * spread;
+                        dir +=
+                            Vec3::new(next_rand(&mut rng) - 0.5, next_rand(&mut rng) - 0.5, next_rand(&mut rng) - 0.5)
+                                * 2.0
+                                * spread;
                         spawn_arrow(&mut commands, &assets, origin, dir.normalize_or_zero() * ARROW_SPEED);
                         sounds.write(PlaySound::at(Sound::Shoot, pos));
                         sk.cooldown = 1.4 + next_rand(&mut rng) * 1.2;

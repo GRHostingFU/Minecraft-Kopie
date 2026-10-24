@@ -122,10 +122,9 @@ pub struct HealthPlugin;
 
 impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Health>().add_message::<Damage>().add_systems(
-            Update,
-            (environmental_damage, apply_damage, regenerate, handle_death).chain(),
-        );
+        app.init_resource::<Health>()
+            .add_message::<Damage>()
+            .add_systems(Update, (environmental_damage, apply_damage, regenerate, handle_death).chain());
     }
 }
 

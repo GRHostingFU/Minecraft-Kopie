@@ -47,7 +47,9 @@ fn footsteps(
         return;
     }
     let pos = t.translation;
-    let under = |pos: Vec3| world.block_at(IVec3::new(pos.x.floor() as i32, (pos.y - 0.05).floor() as i32, pos.z.floor() as i32));
+    let under = |pos: Vec3| {
+        world.block_at(IVec3::new(pos.x.floor() as i32, (pos.y - 0.05).floor() as i32, pos.z.floor() as i32))
+    };
     // Landing: the frame the player touches the ground after falling fast.
     if p.on_ground && !state.was_on_ground && state.last_fall_speed < -LANDING_SPEED && !p.in_water {
         let volume = ((-state.last_fall_speed - LANDING_SPEED) / 12.0 + 0.6).min(1.2);
@@ -116,7 +118,9 @@ fn block_change_sounds(mut changes: MessageReader<BlockChanged>, mut out: Messag
             (Kind::Plate { pressed: a }, Kind::Plate { pressed: b }) if a != b => Some(Sound::PlateClick),
             (Kind::Piston { extended: false, .. }, Kind::Piston { extended: true, .. }) => Some(Sound::PistonOut),
             (Kind::Piston { extended: true, .. }, Kind::Piston { extended: false, .. }) => Some(Sound::PistonIn),
-            (old, _) if is_fluid_kind(old) && (c.new == BlockId::OBSIDIAN || c.new == BlockId::COBBLE) => Some(Sound::Fizz),
+            (old, _) if is_fluid_kind(old) && (c.new == BlockId::OBSIDIAN || c.new == BlockId::COBBLE) => {
+                Some(Sound::Fizz)
+            }
             _ => None,
         };
         if let Some(sound) = sound {

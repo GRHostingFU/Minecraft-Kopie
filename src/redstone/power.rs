@@ -7,8 +7,8 @@
 //! Power in dust decays by one per block; see [`super::sim`] for the wire solver.
 
 use super::rules::{dust_arms, effective_arms};
-use crate::world::block::{BlockId, Facing, Kind};
 use crate::world::BlockQuery;
+use crate::world::block::{BlockId, Facing, Kind};
 use bevy::math::IVec3;
 
 pub const MAX_POWER: u8 = 15;
@@ -56,11 +56,7 @@ pub fn emitted_strong<W: BlockQuery>(w: &W, pos: IVec3, toward: Facing, ignore_w
 
 /// Power a conductor block at `pos` receives from the parts that power it strongly.
 pub fn conductor_power<W: BlockQuery>(w: &W, pos: IVec3, ignore_wire: bool) -> u8 {
-    Facing::ALL
-        .into_iter()
-        .map(|f| emitted_strong(w, pos + f.offset(), f.opposite(), ignore_wire))
-        .max()
-        .unwrap_or(0)
+    Facing::ALL.into_iter().map(|f| emitted_strong(w, pos + f.offset(), f.opposite(), ignore_wire)).max().unwrap_or(0)
 }
 
 /// Signal arriving at `pos` from its neighbour in direction `dir`.
@@ -75,12 +71,7 @@ pub fn input_from<W: BlockQuery>(w: &W, pos: IVec3, dir: Facing, ignore_wire: bo
 
 /// Strongest signal arriving at `pos` from any side except `skip`.
 pub fn input_power<W: BlockQuery>(w: &W, pos: IVec3, skip: Option<Facing>, ignore_wire: bool) -> u8 {
-    Facing::ALL
-        .into_iter()
-        .filter(|f| Some(*f) != skip)
-        .map(|f| input_from(w, pos, f, ignore_wire))
-        .max()
-        .unwrap_or(0)
+    Facing::ALL.into_iter().filter(|f| Some(*f) != skip).map(|f| input_from(w, pos, f, ignore_wire)).max().unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -123,7 +114,8 @@ mod tests {
         ]);
         assert_eq!(conductor_power(&w, IVec3::new(0, 2, 0), false), 15);
         assert_eq!(conductor_power(&w, IVec3::ZERO, false), 0);
-        let off = world(&[(IVec3::new(0, 1, 0), BlockId::torch(Facing::Down, false)), (IVec3::new(0, 2, 0), BlockId::STONE)]);
+        let off =
+            world(&[(IVec3::new(0, 1, 0), BlockId::torch(Facing::Down, false)), (IVec3::new(0, 2, 0), BlockId::STONE)]);
         assert_eq!(conductor_power(&off, IVec3::new(0, 2, 0), false), 0);
     }
 

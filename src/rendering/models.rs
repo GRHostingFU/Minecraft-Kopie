@@ -9,14 +9,22 @@
 use super::mesher::{MeshBuffers, PaddedVolume};
 use crate::physics::fluids::fluid_height;
 use crate::redstone::rules::{dust_arms, effective_arms};
-use crate::world::block::{BlockId, framed_box, Facing, Kind, tile};
+use crate::world::block::{BlockId, Facing, Kind, framed_box, tile};
 use crate::world::chunk::{CHUNK_H, CHUNK_W};
 use bevy::math::{IVec3, Vec3};
 
 const PX: f32 = 1.0 / 16.0;
 
 /// Appends one quad. `p` is in any winding; it is flipped to face `normal`.
-fn quad(out: &mut MeshBuffers, p: [[f32; 3]; 4], normal: Vec3, uv: [[f32; 2]; 4], tile_value: f32, shade: f32, sky: f32) {
+fn quad(
+    out: &mut MeshBuffers,
+    p: [[f32; 3]; 4],
+    normal: Vec3,
+    uv: [[f32; 2]; 4],
+    tile_value: f32,
+    shade: f32,
+    sky: f32,
+) {
     let v = |i: usize| Vec3::from(p[i]);
     let facing = (v(1) - v(0)).cross(v(2) - v(0));
     let order: [usize; 4] = if facing.dot(normal) >= 0.0 { [0, 1, 2, 3] } else { [3, 2, 1, 0] };
@@ -66,7 +74,8 @@ fn emit_box(out: &mut MeshBuffers, b: &BoxSpec) {
                 let y = if f == Facing::Up { hi.y } else { lo.y };
                 (
                     [[lo.x, y, lo.z], [lo.x, y, hi.z], [hi.x, y, hi.z], [hi.x, y, lo.z]],
-                    [[lo.x, lo.z], [lo.x, hi.z], [hi.x, hi.z], [hi.x, lo.z]].map(|[u, v]| [u.rem_euclid(1.0), v.rem_euclid(1.0)]),
+                    [[lo.x, lo.z], [lo.x, hi.z], [hi.x, hi.z], [hi.x, lo.z]]
+                        .map(|[u, v]| [u.rem_euclid(1.0), v.rem_euclid(1.0)]),
                 )
             }
             Facing::West | Facing::East => {
@@ -167,7 +176,8 @@ fn mesh_fluid(vol: &PaddedVolume, [x, y, z]: [i32; 3], b: BlockId, out: &mut Mes
 
     let above = vol.get(x, y + 1, z);
     if !same_fluid(above, lava) && !above.is_opaque() {
-        let p = [[fx, fy + h00, fz], [fx, fy + h01, fz + 1.0], [fx + 1.0, fy + h11, fz + 1.0], [fx + 1.0, fy + h10, fz]];
+        let p =
+            [[fx, fy + h00, fz], [fx, fy + h01, fz + 1.0], [fx + 1.0, fy + h11, fz + 1.0], [fx + 1.0, fy + h10, fz]];
         let uv = [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]];
         let sky = sky_at([x, y + 1, z]);
         quad(out, p, Vec3::Y, uv, tv, 1.0, sky);
@@ -224,9 +234,7 @@ fn mesh_model(vol: &PaddedVolume, [x, y, z]: [i32; 3], b: BlockId, out: &mut Mes
             let any = arms.iter().any(Option::is_some);
             let eff = effective_arms(&arms);
             let (c0, c1) = (6.0 * PX, 10.0 * PX);
-            let flat = |lo: (f32, f32), hi: (f32, f32)| {
-                (Vec3::new(lo.0, 0.0, lo.1), Vec3::new(hi.0, PX * 0.5, hi.1))
-            };
+            let flat = |lo: (f32, f32), hi: (f32, f32)| (Vec3::new(lo.0, 0.0, lo.1), Vec3::new(hi.0, PX * 0.5, hi.1));
             let mut boxes = vec![flat((c0, c0), (c1, c1))];
             for (i, (f, arm)) in Facing::HORIZONTAL.into_iter().zip(arms).enumerate() {
                 // A lone dust is drawn as a small cross; connected arms (and the straight
@@ -268,7 +276,8 @@ fn mesh_model(vol: &PaddedVolume, [x, y, z]: [i32; 3], b: BlockId, out: &mut Mes
                     1.0,
                 );
             } else {
-                let (lo, hi) = framed_box(origin, attach, (3.0 * PX, 13.0 * PX), (7.0 * PX, 9.0 * PX), (6.0 * PX, 8.0 * PX));
+                let (lo, hi) =
+                    framed_box(origin, attach, (3.0 * PX, 13.0 * PX), (7.0 * PX, 9.0 * PX), (6.0 * PX, 8.0 * PX));
                 push(lo, hi, all(t), lit, 1.0);
             }
         }
@@ -287,7 +296,13 @@ fn mesh_model(vol: &PaddedVolume, [x, y, z]: [i32; 3], b: BlockId, out: &mut Mes
         }
         Kind::Plate { pressed } => {
             let top = if pressed { 0.5 * PX } else { PX };
-            push(origin + Vec3::new(PX, 0.0, PX), origin + Vec3::new(15.0 * PX, top, 15.0 * PX), all(tile::STONE), false, 1.0);
+            push(
+                origin + Vec3::new(PX, 0.0, PX),
+                origin + Vec3::new(15.0 * PX, top, 15.0 * PX),
+                all(tile::STONE),
+                false,
+                1.0,
+            );
         }
         Kind::PistonHead { facing, .. } => {
             // `support` points from the head towards the piston body behind it.
@@ -385,7 +400,8 @@ mod tests {
             c.set(x, 50, 5, BlockId::water(level));
         }
         let (_, w) = mesh(&c);
-        let height_at = |x: f32| w.positions.iter().filter(|p| p[0] == x && p[2] == 5.0).map(|p| p[1]).fold(0.0f32, f32::max);
+        let height_at =
+            |x: f32| w.positions.iter().filter(|p| p[0] == x && p[2] == 5.0).map(|p| p[1]).fold(0.0f32, f32::max);
         let (h6, h7, h8, h9) = (height_at(6.0), height_at(7.0), height_at(8.0), height_at(9.0));
         assert!(h6 > h7 && h7 > h8 && h8 > h9, "{h6} {h7} {h8} {h9}");
     }

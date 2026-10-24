@@ -246,14 +246,22 @@ fn setup_assets(
 ) {
     let mats = MobMaterials::new(&mut images, &mut materials);
     let mut build = |parts: Vec<model::PartSpec>| -> Vec<(model::PartSpec, Handle<Mesh>)> {
-        parts.into_iter().map(|p| {
-            let mesh = meshes.add(model::boxes_mesh(&p.boxes));
-            (p, mesh)
-        }).collect()
+        parts
+            .into_iter()
+            .map(|p| {
+                let mesh = meshes.add(model::boxes_mesh(&p.boxes));
+                (p, mesh)
+            })
+            .collect()
     };
     let creeper = build(model::creeper_parts());
     let skeleton = build(model::skeleton_parts());
-    commands.insert_resource(MobAssets { materials: mats, arrow_mesh: meshes.add(model::arrow_mesh()), creeper, skeleton });
+    commands.insert_resource(MobAssets {
+        materials: mats,
+        arrow_mesh: meshes.add(model::arrow_mesh()),
+        creeper,
+        skeleton,
+    });
 }
 
 fn reset_budget(mut budget: ResMut<PathBudget>) {
@@ -315,7 +323,14 @@ pub struct MobStep {
 
 /// One physics step of a walking mob: gravity, acceleration towards `wish` (blocks/s), water
 /// buoyancy and currents, auto-jump over one-block steps. Pure with respect to Bevy.
-pub fn step_mob<W: BlockQuery>(world: &W, pos: &mut Vec3, vel: &mut Vec3, size: (f32, f32), wish: Vec2, dt: f32) -> MobStep {
+pub fn step_mob<W: BlockQuery>(
+    world: &W,
+    pos: &mut Vec3,
+    vel: &mut Vec3,
+    size: (f32, f32),
+    wish: Vec2,
+    dt: f32,
+) -> MobStep {
     let body = Body { pos: *pos, half_width: size.0 * 0.5, height: size.1 };
     let contact = body_contact(world, *pos, body.half_width, body.height);
     let swimming = contact.any();
@@ -326,7 +341,13 @@ pub fn step_mob<W: BlockQuery>(world: &W, pos: &mut Vec3, vel: &mut Vec3, size: 
         let push = contact.flow * if contact.lava { 0.5 } else { 1.5 };
         target += Vec2::new(push.x, push.z);
     }
-    let accel = if grounded { 36.0 } else if swimming { 12.0 } else { 10.0 };
+    let accel = if grounded {
+        36.0
+    } else if swimming {
+        12.0
+    } else {
+        10.0
+    };
     let h = approach(Vec2::new(vel.x, vel.z), target, accel * dt);
     vel.x = h.x;
     vel.z = h.y;
@@ -358,7 +379,12 @@ pub fn step_mob<W: BlockQuery>(world: &W, pos: &mut Vec3, vel: &mut Vec3, size: 
             vel.y = vel.y.max(3.5);
         }
     }
-    MobStep { on_ground: res.on_ground || (grounded && vel.y <= 0.0), in_water: contact.water, in_lava: contact.lava, hit_horizontal }
+    MobStep {
+        on_ground: res.on_ground || (grounded && vel.y <= 0.0),
+        in_water: contact.water,
+        in_lava: contact.lava,
+        hit_horizontal,
+    }
 }
 
 fn turn_towards(current: f32, target: f32, max_step: f32) -> f32 {
@@ -557,7 +583,9 @@ fn arrows(
         let player_hit = target.and_then(|(_, pt)| {
             let (lo, hi) = (
                 pt.translation - Vec3::new(Body::PLAYER_HALF_WIDTH, 0.0, Body::PLAYER_HALF_WIDTH) - Vec3::splat(0.1),
-                pt.translation + Vec3::new(Body::PLAYER_HALF_WIDTH, Body::PLAYER_HEIGHT, Body::PLAYER_HALF_WIDTH) + Vec3::splat(0.1),
+                pt.translation
+                    + Vec3::new(Body::PLAYER_HALF_WIDTH, Body::PLAYER_HEIGHT, Body::PLAYER_HALF_WIDTH)
+                    + Vec3::splat(0.1),
             );
             ray_box(from, dir, lo, hi).filter(|(d, _)| *d <= len).map(|(d, _)| d)
         });
@@ -604,7 +632,9 @@ fn handle_explosions(
 ) {
     for blast in blasts.read() {
         *serial = serial.wrapping_add(1);
-        let seed = (blast.center.x as i32 as u32).wrapping_mul(73856093) ^ (blast.center.z as i32 as u32).wrapping_mul(83492791) ^ serial.wrapping_mul(2654435761);
+        let seed = (blast.center.x as i32 as u32).wrapping_mul(73856093)
+            ^ (blast.center.z as i32 as u32).wrapping_mul(83492791)
+            ^ serial.wrapping_mul(2654435761);
         // Damage is computed against the intact world, so walls shelter bodies before they break.
         if let Ok((p, pt)) = player.single()
             && p.active
@@ -621,7 +651,14 @@ fn handle_explosions(
         let removed = explosion::detonate(&mut *world, blast.center, blast.power, seed);
         for (i, cell) in removed.iter().enumerate() {
             if i % 4 == 0 && i / 4 < 24 {
-                spawn_debris(&mut commands, &mut particle_assets, &mut meshes, &mut materials, *cell, crate::world::BlockId::DIRT);
+                spawn_debris(
+                    &mut commands,
+                    &mut particle_assets,
+                    &mut meshes,
+                    &mut materials,
+                    *cell,
+                    crate::world::BlockId::DIRT,
+                );
             }
         }
         sounds.write(PlaySound::at(Sound::Explosion, blast.center).with_volume(1.2));
@@ -788,7 +825,8 @@ fn animate_mobs(
                 if let Some(target) = mob.look_at {
                     let to = target - (root_t.translation + part.pivot);
                     let want_yaw = yaw_of(Vec2::new(to.x, to.z));
-                    let rel = (want_yaw - mob.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                    let rel = (want_yaw - mob.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                        - std::f32::consts::PI;
                     let pitch = (to.y.atan2(Vec2::new(to.x, to.z).length())).clamp(-0.6, 0.6);
                     rotation = Quat::from_rotation_y(rel.clamp(-1.1, 1.1)) * Quat::from_rotation_x(pitch);
                 }
@@ -900,7 +938,10 @@ mod tests {
         assert!((forward - Vec2::new(1.0, 0.0)).length() < 1e-5);
         assert!((turn_towards(0.0, 3.0, 0.5) - 0.5).abs() < 1e-6);
         // From 3.0 to -3.0 the short way is +0.283 rad across the +-pi seam, not -6.
-        assert!((turn_towards(3.0, -3.0, 0.5) - (3.0 + std::f32::consts::TAU - 6.0)).abs() < 1e-4, "turns the short way round");
+        assert!(
+            (turn_towards(3.0, -3.0, 0.5) - (3.0 + std::f32::consts::TAU - 6.0)).abs() < 1e-4,
+            "turns the short way round"
+        );
     }
 
     #[test]
