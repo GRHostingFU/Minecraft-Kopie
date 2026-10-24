@@ -58,8 +58,11 @@ impl Plugin for ChunkStreamingPlugin {
             .init_resource::<VoxelWorld>()
             .init_resource::<GenTasks>()
             .init_resource::<RemovedChunks>()
+            .add_message::<super::voxel_world::BlockChanged>()
+            .add_message::<super::voxel_world::ChunkLoaded>()
             .insert_resource(AutosaveTimer(Timer::new(Duration::from_secs(AUTOSAVE_SECS), TimerMode::Repeating)))
             .add_systems(Update, (request_chunks, collect_chunks, unload_chunks, autosave_chunks).chain())
+            .add_systems(PostUpdate, super::voxel_world::dispatch_world_events)
             .add_systems(Last, save_on_exit.in_set(OnAppExitSystems).after(ExitSystems));
     }
 }

@@ -3,7 +3,8 @@
 // shading, sky light, a warm twilight tint, day/night brightness and distance fog.
 //
 // Vertex colour layout (see rendering/mesher.rs):
-//   r = ambient occlusion, g = sky light, b = atlas tile index, a = face shade.
+//   r = ambient occlusion, g = sky light, b = atlas tile index (+64 = emissive: lava, lit lamps,
+//   powered redstone, drawn independent of daylight), a = face shade.
 //
 // Uniforms:
 //   fog    = (rgb fog / horizon colour, fog start distance)
@@ -28,7 +29,9 @@ const MAX_LOD: f32 = 3.0;
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let ao = in.color.r;
     let sky = in.color.g;
-    let tile = floor(in.color.b + 0.5);
+    let raw_tile = floor(in.color.b + 0.5);
+    let emissive = raw_tile >= 64.0;
+    let tile = select(raw_tile, raw_tile - 64.0, emissive);
     let face_shade = in.color.a;
 
     let col = tile - floor(tile / ATLAS_COLS) * ATLAS_COLS;
@@ -64,6 +67,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Low sun: warm, slightly orange light on sun-lit surfaces.
     let warm = mix(vec3<f32>(1.0), vec3<f32>(1.0, 0.80, 0.62), twilight * sky * daylight);
     var rgb = texel.rgb * light * night_tint * warm;
+    if (emissive) {
+        rgb = texel.rgb * ao * face_shade;
+    }
 
     // Exponential-squared fog that starts at `fog.a` and is ~99.5 % at the render distance,
     // finished with a short smoothstep so the far edge of the loaded world is fully hidden.

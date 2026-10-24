@@ -3,6 +3,7 @@
 
 pub mod hud;
 pub mod inventory_screen;
+pub mod overlay;
 pub mod pause_menu;
 pub mod screens;
 pub mod widgets;
@@ -18,6 +19,7 @@ impl Plugin for UiPlugin {
             hud::HudPlugin,
             inventory_screen::InventoryScreenPlugin,
             pause_menu::PauseMenuPlugin,
+            overlay::OverlayPlugin,
         ))
         .add_systems(Update, widgets::refresh_slots);
     }

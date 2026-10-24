@@ -10,7 +10,7 @@
 //! * `color` — `r` = ambient occlusion, `g` = sky light, `b` = atlas tile index,
 //!   `a` = directional face shading.
 
-use crate::world::block::{BlockId, Face};
+use crate::world::block::{BlockId, Facing, tile};
 use crate::world::chunk::{CHUNK_H, CHUNK_W, Chunk};
 
 pub const PW: usize = CHUNK_W + 2;
@@ -98,6 +98,10 @@ impl PaddedVolume {
         self.get(p[0], p[1], p[2]).is_opaque()
     }
 
+    pub(super) fn sky_light_f32(&self, p: [i32; 3]) -> f32 {
+        self.sky_light(p) as f32 / MAX_SKY as f32
+    }
+
     fn sky_light(&self, p: [i32; 3]) -> u8 {
         let top = self.top[(p[2] + 1) as usize * PW + (p[0] + 1) as usize] as i32;
         if p[1] > top { MAX_SKY as u8 } else { (MAX_SKY - 2 * (top - p[1])).max(MIN_SKY) as u8 }
@@ -132,7 +136,6 @@ pub struct ChunkMeshData {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Layer {
     Opaque,
-    Water,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -158,14 +161,13 @@ impl FaceKey {
 pub fn mesh_chunk(vol: &PaddedVolume) -> ChunkMeshData {
     let mut out = ChunkMeshData::default();
     greedy(vol, Layer::Opaque, &mut out.opaque);
-    greedy(vol, Layer::Water, &mut out.water);
+    super::models::mesh_special(vol, &mut out.opaque, &mut out.water);
     out
 }
 
 fn face_visible(layer: Layer, block: BlockId, neighbour: BlockId) -> bool {
     match layer {
         Layer::Opaque => block.is_opaque() && !neighbour.is_opaque(),
-        Layer::Water => block.is_water() && neighbour.is_air(),
     }
 }
 
@@ -193,7 +195,7 @@ fn greedy(vol: &PaddedVolume, layer: Layer, out: &mut MeshBuffers) {
                             any = true;
                             Some(FaceKey {
                                 block: b,
-                                ao: if layer == Layer::Water { [3; 4] } else { corner_ao(vol, n, ua, va) },
+                                ao: corner_ao(vol, n, ua, va),
                                 sky: vol.sky_light(n),
                             })
                         } else {
@@ -260,11 +262,14 @@ fn corner_ao(vol: &PaddedVolume, n: [i32; 3], ua: usize, va: usize) -> [u8; 4] {
     [corner(0, 0), corner(1, 0), corner(1, 1), corner(0, 1)]
 }
 
-fn face_for(axis: usize, positive: bool) -> Face {
+fn facing_for(axis: usize, positive: bool) -> Facing {
     match (axis, positive) {
-        (1, true) => Face::Top,
-        (1, false) => Face::Bottom,
-        _ => Face::Side,
+        (0, true) => Facing::East,
+        (0, false) => Facing::West,
+        (1, true) => Facing::Up,
+        (1, false) => Facing::Down,
+        (_, true) => Facing::South,
+        (_, false) => Facing::North,
     }
 }
 
@@ -320,7 +325,7 @@ fn emit_quad(
         }
     };
 
-    let tile = key.block.tile(face_for(axis, positive)) as f32;
+    let tile = (key.block.tile_facing(facing_for(axis, positive)) + if key.block.is_emissive() { tile::EMISSIVE } else { 0 }) as f32;
     let shade = face_shade(axis, positive);
     let sky = key.sky as f32 / MAX_SKY as f32;
     let mut normal = [0f32; 3];
@@ -441,7 +446,7 @@ mod tests {
         }
         let vol = volume_of(&c, true);
         let m = mesh_chunk(&vol);
-        let (mut opaque_faces, mut water_faces) = (0, 0);
+        let mut opaque_faces = 0;
         for y in 0..256i32 {
             for z in 0..16 {
                 for x in 0..16 {
@@ -449,13 +454,12 @@ mod tests {
                     for (dx, dy, dz) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
                         let n = vol.get(x + dx, y + dy, z + dz);
                         opaque_faces += face_visible(Layer::Opaque, b, n) as u32;
-                        water_faces += face_visible(Layer::Water, b, n) as u32;
                     }
                 }
             }
         }
         assert!((area(&m.opaque) - opaque_faces as f32).abs() < 0.01);
-        assert!((area(&m.water) - water_faces as f32).abs() < 0.01);
+        assert!(!m.water.is_empty(), "the water cells are meshed by the fluid pass");
     }
 
     #[test]
@@ -505,8 +509,8 @@ mod tests {
             (-1..=1).flat_map(|z| (-1..=1).map(move |x| IVec2::new(x, z))).map(|p| g.generate(p)).collect();
         let vol = PaddedVolume::build(|dx, dz| Some(&chunks[((dz + 1) * 3 + dx + 1) as usize]));
         let m = mesh_chunk(&vol);
-        let naive: f32 = area(&m.opaque) + area(&m.water);
-        let quads = (m.opaque.quad_count() + m.water.quad_count()) as f32;
+        let naive: f32 = area(&m.opaque);
+        let quads = m.opaque.quad_count() as f32;
         assert!(quads > 0.0 && naive / quads > 1.25, "avg quad area {}", naive / quads);
         // Indices must always reference valid vertices.
         assert!(m.opaque.indices.iter().all(|&i| (i as usize) < m.opaque.positions.len()));

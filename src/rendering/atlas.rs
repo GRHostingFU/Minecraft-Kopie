@@ -270,6 +270,97 @@ fn paint(tile_id: u8, x: i32, y: i32) -> [u8; 4] {
             c = scale(c, 0.95 + 0.1 * rnd(x, y, salt + 3));
             px(c)
         }
+        tile::OBSIDIAN => {
+            // Glassy dark volcanic rock: deep violet-black with faint lighter veins and sparks.
+            let n = fbm(u, v, salt);
+            let (d1, d2, _) = worley(u, v, 3, salt + 6);
+            let mut c = scale([0.075, 0.045, 0.13], 0.7 + 0.9 * n);
+            if d2 - d1 < 0.05 {
+                c = mix(c, [0.22, 0.12, 0.38], 0.55);
+            }
+            let spark = rnd(x, y, salt + 9);
+            if spark > 0.985 {
+                c = mix(c, [0.55, 0.38, 0.85], 0.7);
+            }
+            px(c)
+        }
+        tile::LAVA => {
+            // Glowing cells separated by a darker crust.
+            let (d1, d2, id) = worley(u, v, 4, salt);
+            let heat = (1.0 - d1 * 2.2).clamp(0.0, 1.0);
+            let crust = (1.0 - ((d2 - d1) / 0.16).clamp(0.0, 1.0)).clamp(0.0, 1.0);
+            let mut c = mix([0.62, 0.12, 0.02], [1.0, 0.72, 0.14], heat * (0.7 + 0.3 * (id & 0xFF) as f32 / 255.0));
+            c = mix(c, [0.32, 0.05, 0.01], crust * 0.8);
+            c = scale(c, 0.92 + 0.16 * rnd(x, y, salt + 3));
+            px(c)
+        }
+        tile::DUST_OFF | tile::DUST_ON => {
+            let on = tile_id == tile::DUST_ON;
+            let base = if on { [0.93, 0.10, 0.06] } else { [0.36, 0.03, 0.03] };
+            let mut c = scale(base, 0.85 + 0.3 * rnd(x, y, salt));
+            if rnd(x / 2, y / 2, salt + 1) > 0.8 {
+                c = scale(c, if on { 1.2 } else { 0.7 });
+            }
+            px(c)
+        }
+        tile::TORCH_OFF | tile::TORCH_ON => {
+            let on = tile_id == tile::TORCH_ON;
+            // The flame sits in the upper third of the stick (the box crops the middle columns).
+            let tip = y < 15;
+            let c = match (on, tip) {
+                (true, true) => mix([1.0, 0.95, 0.55], [1.0, 0.35, 0.05], y as f32 / 15.0),
+                (true, false) => scale([0.55, 0.14, 0.08], 0.8 + 0.4 * rnd(x, y, salt)),
+                (false, true) => scale([0.30, 0.08, 0.06], 0.8 + 0.4 * rnd(x, y, salt)),
+                (false, false) => scale([0.30, 0.20, 0.12], 0.8 + 0.4 * rnd(x, y, salt)),
+            };
+            px(c)
+        }
+        tile::PISTON_TOP | tile::PISTON_STICKY => {
+            let edge = x.min(y).min(31 - x).min(31 - y);
+            let sticky = tile_id == tile::PISTON_STICKY;
+            let base = if sticky { [0.42, 0.68, 0.30] } else { [0.70, 0.55, 0.32] };
+            let mut c = scale(base, 0.88 + 0.24 * fbm(u, v, salt));
+            if edge < 3 {
+                c = scale(c, 0.62);
+            }
+            if edge == 3 {
+                c = scale(c, 1.15);
+            }
+            if sticky && rnd(x / 3, y / 3, salt + 5) > 0.9 {
+                c = scale(c, 1.2);
+            }
+            px(c)
+        }
+        tile::PISTON_SIDE | tile::PISTON_BOTTOM => {
+            let edge = x.min(y).min(31 - x).min(31 - y);
+            let mut c = scale([0.52, 0.52, 0.54], 0.84 + 0.3 * fbm(u, v, salt));
+            if tile_id == tile::PISTON_SIDE && y < 7 {
+                // The wooden plate band of the piston's business end.
+                c = scale([0.66, 0.51, 0.30], 0.9 + 0.2 * rnd(x, y, salt));
+            }
+            if edge < 2 {
+                c = scale(c, 0.65);
+            }
+            px(c)
+        }
+        tile::LAMP_OFF | tile::LAMP_ON => {
+            let on = tile_id == tile::LAMP_ON;
+            // A lattice of frame strips around glass panes.
+            let frame = x % 16 < 2 || y % 16 < 2;
+            let c = if frame {
+                scale(if on { [0.80, 0.62, 0.30] } else { [0.35, 0.24, 0.14] }, 0.85 + 0.3 * rnd(x, y, salt))
+            } else if on {
+                let glow = 1.0 - ((u - 0.5).abs() + (v - 0.5).abs()) * 0.3;
+                scale([1.0, 0.88, 0.52], glow * (0.92 + 0.12 * rnd(x, y, salt)))
+            } else {
+                scale([0.55, 0.38, 0.22], 0.8 + 0.3 * fbm(u, v, salt))
+            };
+            px(c)
+        }
+        tile::LEVER => {
+            let c = scale([0.56, 0.40, 0.21], 0.8 + 0.4 * vnoise(u, v, 2, 8, salt));
+            px(c)
+        }
         tile::HELMET..=tile::BOOTS => armor_icon(tile_id - tile::HELMET, x, y),
         _ => [255, 0, 255, 255],
     }

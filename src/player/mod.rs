@@ -1,4 +1,5 @@
 pub mod controller;
+pub mod health;
 pub mod interaction;
 pub mod viewmodel;
 
@@ -50,6 +51,11 @@ impl Plugin for PlayerPlugin {
         app.insert_resource(inventory)
             .insert_resource(game_settings)
             .insert_resource(LoadedLevel(level))
-            .add_plugins((controller::ControllerPlugin, interaction::InteractionPlugin, viewmodel::ViewModelPlugin));
+            .add_plugins((
+                controller::ControllerPlugin,
+                health::HealthPlugin,
+                interaction::InteractionPlugin,
+                viewmodel::ViewModelPlugin,
+            ));
     }
 }

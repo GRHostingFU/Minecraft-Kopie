@@ -26,6 +26,7 @@ fn player(active: bool) -> Player {
         pitch: -0.4,
         on_ground: true,
         in_water: false,
+        in_lava: false,
         flying: true,
         sprinting: false,
         sneaking: false,
